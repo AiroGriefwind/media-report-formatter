@@ -520,31 +520,41 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
 # WEB SCRAPING FUNCTIONS (Updated from wiser_scrape.py)
 # =============================================================================
 
+
 def setup_webdriver(headless=True):
     """
-    A simplified and reliable webdriver setup that relies on Selenium Manager.
+    The definitive, hardened webdriver setup for Streamlit Cloud.
+    This version includes a comprehensive set of arguments to ensure
+    Chrome starts reliably in a containerized environment.
     """
     options = webdriver.chrome.options.Options()
 
+    # These are the crucial arguments for a stable headless setup
     if headless:
-        options.add_argument("--headless")
+        # Use the new recommended headless mode
+        options.add_argument("--headless=new")
+    
     options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-infobars")
+    options.add_argument("--disable-setuid-sandbox")
     options.add_argument("--window-size=1920,1080")
+    # Setting a remote debugging port is a common fix for the DevToolsActivePort error
+    options.add_argument("--remote-debugging-port=9222")
 
-    # This simple call triggers the built-in Selenium Manager to
-    # find the browser (installed by packages.txt) and download the correct driver.
     try:
-        st.info("Initializing WebDriver using Selenium Manager...")
+        st.info("Initializing WebDriver with comprehensive options...")
         driver = webdriver.Chrome(options=options)
         st.success("✅ WebDriver initialized successfully!")
         return driver
     except Exception as e:
-        st.error("🔥 Failed to initialize WebDriver:")
+        st.error("🔥 Failed to initialize WebDriver with comprehensive options:")
         st.error(f"Error Message: {e}")
         st.code(traceback.format_exc())
         return None
+
 
 
 
