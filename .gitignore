@@ -1,0 +1,10 @@
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# Environment files
+.env
+*.env
+
+# Temporary files
+captcha.png
+temp_*.docx

@@ -1,3 +1,6 @@
 streamlit
 python-docx
-opencc
+opencc-python-reimplemented
+selenium
+twocaptcha-python
+webdriver-manager
