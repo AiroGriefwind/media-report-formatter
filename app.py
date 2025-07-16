@@ -2,6 +2,7 @@ import streamlit as st
 import tempfile
 import os
 import traceback
+from selenium import webdriver
 from io import BytesIO
 import time
 import base64
@@ -520,10 +521,12 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
 
 def setup_webdriver(headless=True):
     """
-    A hardened webdriver setup for Streamlit Cloud with extensive logging.
+    A simplified and more reliable webdriver setup for Streamlit Cloud.
+    This version removes hardcoded paths and relies on Selenium Manager
+    to find the driver automatically.
     """
     options = webdriver.chrome.options.Options()
-    
+
     # All the necessary arguments for a headless environment
     if headless:
         options.add_argument("--headless")
@@ -531,30 +534,25 @@ def setup_webdriver(headless=True):
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    
-    # Point to the browser binary and driver executable installed by packages.txt
-    options.binary_location = "/usr/bin/chromium-browser"
-    service = webdriver.chrome.service.Service(
-        executable_path="/usr/bin/chromium-chromedriver"
-    )
-    
+
+    # We no longer need to specify the binary location or create a Service object.
+    # Selenium Manager will automatically find the browser (from packages.txt)
+    # and download the correct driver for it.
     try:
-        st.info("Attempting to initialize WebDriver with specified paths...")
-        driver = webdriver.Chrome(service=service, options=options)
+        st.info("Initializing WebDriver using Selenium Manager...")
+        driver = webdriver.Chrome(options=options)
         st.success("✅ WebDriver initialized successfully!")
         return driver
     except Exception as e:
-        # Provide a very detailed error message if initialization fails
         st.error("🔥 Failed to initialize WebDriver. This is the critical error:")
         st.error(f"Error Type: {type(e).__name__}")
         st.error(f"Error Message: {e}")
         st.code(traceback.format_exc())
         st.warning(
-            "This usually means a permissions issue or an incompatibility "
-            "between the installed browser and the driver on Streamlit Cloud."
+            "This may indicate a deeper issue with the browser installation "
+            "or a permissions problem on the Streamlit Cloud environment."
         )
         return None
-
 
 
 def perform_login(driver, wait, group_name, username, password, api_key):
