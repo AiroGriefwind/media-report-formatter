@@ -1,6 +1,7 @@
 import streamlit as st
 import tempfile
 import os
+import traceback
 from io import BytesIO
 import time
 import base64
@@ -519,33 +520,39 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
 
 def setup_webdriver(headless=True):
     """
-    Setup Chrome webdriver specifically for Streamlit Cloud deployment.
-    This version is more robust and explicitly defines paths for the browser and driver.
+    A hardened webdriver setup for Streamlit Cloud with extensive logging.
     """
     options = webdriver.chrome.options.Options()
+    
+    # All the necessary arguments for a headless environment
     if headless:
         options.add_argument("--headless")
-    
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     
-    # Standard binary locations for chromium on Streamlit Cloud
+    # Point to the browser binary and driver executable installed by packages.txt
     options.binary_location = "/usr/bin/chromium-browser"
-    
-    # The service object points to the chromedriver installed by packages.txt
     service = webdriver.chrome.service.Service(
         executable_path="/usr/bin/chromium-chromedriver"
     )
     
     try:
-        # Pass both the service and options to the webdriver
+        st.info("Attempting to initialize WebDriver with specified paths...")
         driver = webdriver.Chrome(service=service, options=options)
+        st.success("✅ WebDriver initialized successfully!")
         return driver
     except Exception as e:
-        st.error(f"Failed to setup webdriver. Error: {str(e)}")
-        st.code(traceback.format_exc()) # Show full traceback for debugging
+        # Provide a very detailed error message if initialization fails
+        st.error("🔥 Failed to initialize WebDriver. This is the critical error:")
+        st.error(f"Error Type: {type(e).__name__}")
+        st.error(f"Error Message: {e}")
+        st.code(traceback.format_exc())
+        st.warning(
+            "This usually means a permissions issue or an incompatibility "
+            "between the installed browser and the driver on Streamlit Cloud."
+        )
         return None
 
 
@@ -991,7 +998,10 @@ def main():
                 status_text.text("Setting up web driver...")
                 # Initialize the webdriver with headless checkbox value
                 driver = setup_webdriver(headless=run_headless)
-                if not driver: return
+                # This will prevent the AttributeError and show the real error.
+                if driver is None:
+                    st.error("Driver setup failed, cannot continue. See logs above for details.")
+                    st.stop()
                 
                 wait = WebDriverWait(driver, 20)
                 progress_bar.progress(5, text="Driver ready. Logging in...")
@@ -1085,7 +1095,8 @@ def main():
                 st.code(traceback.format_exc())
             
             finally:
-                if 'driver' in locals() and driver.session_id:
+                if 'driver':
+                    st.info("Quitting WebDriver session.")
                     driver.quit()
                 if 'output_path' in locals() and os.path.exists(output_path):
                     os.remove(output_path)
