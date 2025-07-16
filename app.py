@@ -38,6 +38,13 @@ from twocaptcha import TwoCaptcha
 # CONFIGURATION CONSTANTS
 # =============================================================================
 
+# Add specific incorrect-to-correct mappings here.
+# This runs AFTER the main s2hk conversion.
+CORRECTION_MAP = {
+    "餘錦賢": "余錦賢",
+    # Add other corrections here, e.g., "错误词": "正确词"
+}
+
 # Editorial media order
 EDITORIAL_MEDIA_ORDER = [
     '商報', '文匯', '大公', '東方', '星島', '明報', '頭條', '經濟', '成報', 'am730', 'SCMP'
@@ -90,6 +97,118 @@ def is_valid_headline(text):
         return False
     return True
 
+def is_new_metadata_format(text):
+    """
+    Detects if a line is in the new metadata format.
+    Format: "media name + page number + section name | word count | date"
+    """
+    if not text:
+        return False
+    
+    # Check for exactly two '|' characters
+    if text.count('|') != 2:
+        return False
+    
+    # Check that it doesn't end with punctuation
+    if re.search(r'[。，.，]$', text.strip()):
+        return False
+    
+    # Additional validation - should have format like "媒体名 页码 栏目名 |字数 |日期"
+    parts = text.split('|')
+    if len(parts) != 3:
+        return False
+    
+    # The first part should contain media name and page info
+    first_part = parts[0].strip()
+    if not first_part:
+        return False
+    
+    # The second part should contain word count (should have '字')
+    second_part = parts[1].strip()
+    if '字' not in second_part:
+        return False
+    
+    # The third part should look like a date
+    third_part = parts[2].strip()
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', third_part):
+        return False
+    
+    return True
+
+def transform_metadata_line(metadata_text, next_paragraph_text):
+    """
+    Transforms metadata line from new format to semicolon format.
+    From: "香港经济日报 A04 评析天下 |911 字 |2025-07-16"
+    To: "经济 A04：全国政协副主席梁振英出任主席的共享基金会，主力为一带一路国家提供"
+    """
+    if not metadata_text or not next_paragraph_text:
+        return metadata_text
+    
+    # Split by '|' to get the main part
+    parts = metadata_text.split('|')
+    if len(parts) < 1:
+        return metadata_text
+    
+    main_part = parts[0].strip()
+    
+    # Extract media name and page number
+    # Pattern: "媒体名 页码 栏目名" -> we want "媒体名 页码"
+    match = re.match(r'^(.+?)\s+([A-Z]?\d+)\s+(.*)$', main_part)
+    if not match:
+        return metadata_text
+    
+    media_name = match.group(1)
+    page_number = match.group(2)
+    
+    # Convert long media name to short name using enhanced mapping
+    short_media_name = get_short_media_name(media_name)
+    
+    # Take first part of the next paragraph (limit to reasonable length)
+    first_content = next_paragraph_text.strip()
+    # Limit to around 50-60 characters to avoid too long lines
+    if len(first_content) > 60:
+        first_content = first_content[:60]
+    
+    # Format as "short_media_name page_number：content"
+    transformed = f"{short_media_name} {page_number}：{first_content}"
+    
+    return transformed
+
+def get_short_media_name(full_media_name):
+    """
+    Convert full media name to short name with flexible matching.
+    """
+    # Direct mapping first
+    if full_media_name in MEDIA_NAME_MAPPINGS:
+        return MEDIA_NAME_MAPPINGS[full_media_name]
+    
+    # Flexible matching for common patterns (handles both simplified and traditional)
+    if '经济日报' in full_media_name or '經濟日報' in full_media_name:
+        return '经济'
+    if '明报' in full_media_name or '明報' in full_media_name:
+        return '明报'
+    if '文汇报' in full_media_name or '文匯報' in full_media_name:
+        return '文汇'
+    if '东方日报' in full_media_name or '東方日報' in full_media_name:
+        return '东方'
+    if '星岛日报' in full_media_name or '星島日報' in full_media_name:
+        return '星岛'
+    if '大公报' in full_media_name or '大公報' in full_media_name:
+        return '大公'
+    if '头条' in full_media_name or '頭條' in full_media_name:
+        return '头条'
+    if '成报' in full_media_name or '成報' in full_media_name:
+        return '成报'
+    if '商报' in full_media_name or '商報' in full_media_name:
+        return '商报'
+    if 'am730' in full_media_name.lower():
+        return 'am730'
+    if '南華早報' in full_media_name or '南华早报' in full_media_name:
+        return 'SCMP'
+    
+    # If no match found, return the original name
+    return full_media_name
+
 def convert_to_traditional_chinese(text):
     """Convert simplified Chinese to traditional Chinese"""
     if not text or not text.strip():
@@ -101,6 +220,17 @@ def convert_to_traditional_chinese(text):
     except Exception as e:
         print(f"Warning: Chinese conversion failed for text: {text[:50]}... Error: {str(e)}")
         return text
+    
+def apply_gatekeeper_corrections(text):
+    """
+    Applies a second round of specific corrections based on the CORRECTION_MAP.
+    """
+    if not text:
+        return text
+    for error, correction in CORRECTION_MAP.items():
+        if error in text:
+            text = text.replace(error, correction)
+    return text
 
 def setup_document_fonts(doc):
     """Setup document fonts"""
@@ -345,7 +475,9 @@ def add_end_marker(doc):
     end_para.style = doc.styles['Normal']
 
 def extract_document_structure(doc_path, json_output_path=None):
-    """Extract document structure using state-based logic"""
+    """
+    Extracts structure using state-based logic with Chinese conversion.
+    """
     global TITLE_MODIFICATIONS
     TITLE_MODIFICATIONS = []
 
@@ -353,16 +485,12 @@ def extract_document_structure(doc_path, json_output_path=None):
         json_output_path = doc_path.replace('.docx', '_structure.json')
     
     doc = Document(doc_path)
-    structure = {
-        'total_paragraphs': len(doc.paragraphs), 
-        'editorial_media_groups': [], 
-        'sections': {}, 
-        'other_content': []
-    }
+    structure = {'total_paragraphs': len(doc.paragraphs), 'editorial_media_groups': [], 'sections': {}, 'other_content': []}
     
     current_section = None
     in_editorial = False
     section_counters = {}
+    
     is_expecting_title = False
     title_cooldown_counter = 0
 
@@ -370,9 +498,23 @@ def extract_document_structure(doc_path, json_output_path=None):
     num_paragraphs = len(paragraphs)
     
     for i, paragraph in enumerate(paragraphs):
+        # Apply Chinese conversion to paragraph text
         original_text = paragraph.text.strip()
         text = convert_to_traditional_chinese(original_text)
+        # Apply gatekeeper corrections after conversion
+        text = apply_gatekeeper_corrections(text)
         
+        # NEW: Check if this is new metadata format and transform it
+        if is_new_metadata_format(original_text):
+        # Get next paragraph for content
+            next_content = ""
+            if i + 1 < num_paragraphs:
+                next_content = convert_to_traditional_chinese(paragraphs[i + 1].text.strip())
+                next_content = apply_gatekeeper_corrections(next_content)
+        
+            # Transform the metadata line to semicolon format
+            text = transform_metadata_line(text, next_content)
+
         section_type = detect_section_type(text)
         if section_type:
             current_section = section_type
@@ -381,34 +523,27 @@ def extract_document_structure(doc_path, json_output_path=None):
             title_cooldown_counter = 0
             if section_type not in structure['sections']:
                 structure['sections'][section_type] = []
-            structure['other_content'].append({
-                'index': i, 'text': text, 'type': 'section_header', 'section': section_type
-            })
+            structure['other_content'].append({'index': i, 'text': text, 'type': 'section_header', 'section': section_type})
             continue
         
-        if not text: 
-            continue
+        if not text: continue
         
         if in_editorial:
             media_info = detect_editorial_media_line(text)
             if media_info:
+                # Apply conversion to media content as well
                 converted_content = convert_to_traditional_chinese(media_info['content'])
+                # Apply gatekeeper corrections to media content
+                converted_content = apply_gatekeeper_corrections(converted_content)
                 media_info['content'] = converted_content
-                current_media_group = {
-                    'clean_name': media_info['clean_name'], 
-                    'original_name': media_info['full_name'], 
-                    'start_index': i, 
-                    'first_item': converted_content, 
-                    'additional_items': []
-                }
+                current_media_group = {'clean_name': media_info['clean_name'], 'original_name': media_info['full_name'], 'start_index': i, 'first_item': converted_content, 'additional_items': []}
                 structure['editorial_media_groups'].append(current_media_group)
             elif 'current_media_group' in locals() and current_media_group and is_editorial_continuation(text):
                 current_media_group['additional_items'].append({'index': i, 'text': text})
         else:
+            # Rest of the existing logic remains the same, but with converted text
             if title_cooldown_counter > 0:
-                structure['other_content'].append({
-                    'index': i, 'text': text, 'type': 'content', 'section': current_section
-                })
+                structure['other_content'].append({'index': i, 'text': text, 'type': 'content', 'section': current_section})
                 title_cooldown_counter -= 1
                 continue
 
@@ -420,34 +555,29 @@ def extract_document_structure(doc_path, json_output_path=None):
                 is_expecting_title = False
             else:
                 if i + 1 < num_paragraphs:
-                    next_paragraph_text = convert_to_traditional_chinese(paragraphs[i+1].text.strip())
-                    if is_source_citation(next_paragraph_text) and is_valid_headline(text):
+                    next_paragraph_text_original = paragraphs[i+1].text.strip()
+                    next_paragraph_text = convert_to_traditional_chinese(next_paragraph_text_original)
+                    next_paragraph_text = apply_gatekeeper_corrections(next_paragraph_text)
+                    
+                    # ENHANCED: Check for both original format and new metadata format
+                    if (is_source_citation(next_paragraph_text) or is_new_metadata_format(next_paragraph_text_original)) and is_valid_headline(text):
                         is_title = True
 
             if current_section and is_title:
                 match_existing_index = re.match(r'^(\d+)\.\s*(.*)', text)
                 if match_existing_index:
                     original_title_text, stripped_title_text = text, match_existing_index.group(2).strip()
-                    TITLE_MODIFICATIONS.append({
-                        'original_text': original_title_text, 
-                        'modified_text': stripped_title_text, 
-                        'section': current_section, 
-                        'original_paragraph_index': i
-                    })
+                    TITLE_MODIFICATIONS.append({'original_text': original_title_text, 'modified_text': stripped_title_text, 'section': current_section, 'original_paragraph_index': i})
                     prospective_title_text = stripped_title_text
                 
                 section_counters[current_section] = section_counters.get(current_section, 0) + 1
                 article_index = section_counters[current_section]
                 
-                structure['sections'][current_section].append({
-                    'index': i, 'text': prospective_title_text, 'type': 'article_title', 'section_index': article_index
-                })
+                structure['sections'][current_section].append({'index': i, 'text': prospective_title_text, 'type': 'article_title', 'section_index': article_index})
                 
                 title_cooldown_counter = 1
             else:
-                structure['other_content'].append({
-                    'index': i, 'text': text, 'type': 'content', 'section': current_section
-                })
+                structure['other_content'].append({'index': i, 'text': text, 'type': 'content', 'section': current_section})
 
     structure['title_format_modifications'] = TITLE_MODIFICATIONS
 
