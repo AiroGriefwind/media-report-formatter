@@ -1,6 +1,14 @@
+# Main application and UI
 streamlit
-python-docx
-opencc-python-reimplemented
+
+# Web Scraping
 selenium
 twocaptcha-python
-webdriver-manager
+requests
+
+# Document Processing
+python-docx
+opencc-python-reimplemented
+
+# Note: Do not add packages like 'pygments' or 'rich'.
+# Streamlit will install them automatically as its own dependencies.
