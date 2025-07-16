@@ -2,7 +2,7 @@
 chromium-browser
 chromium-chromedriver
 
-# Essential dependencies for Chromedriver on headless Linux
+# All known essential dependencies for Chromedriver on headless Linux
 libglib2.0-0
 libnss3
 libgconf-2-4
@@ -23,3 +23,6 @@ libxss1
 libxtst6
 lsb-release
 wget
+x11-apps
+libu2f-udev
+libvulkan1

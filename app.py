@@ -521,25 +521,26 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
 
 def setup_webdriver(headless=True):
     """
-    A simplified and more reliable webdriver setup for Streamlit Cloud.
-    This version removes hardcoded paths and relies on Selenium Manager
-    to find the driver automatically.
+    The definitive 'bulletproof' webdriver setup for Streamlit Cloud.
+    This version adds every known argument to ensure stability in a
+    minimal headless Linux environment.
     """
     options = webdriver.chrome.options.Options()
-
-    # All the necessary arguments for a headless environment
+    
     if headless:
         options.add_argument("--headless")
+        
     options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-infobars")
+    options.add_argument("--disable-popup-blocking")
+    options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
-
-    # We no longer need to specify the binary location or create a Service object.
-    # Selenium Manager will automatically find the browser (from packages.txt)
-    # and download the correct driver for it.
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    
     try:
-        st.info("Initializing WebDriver using Selenium Manager...")
+        st.info("Initializing WebDriver with final 'bulletproof' options...")
         driver = webdriver.Chrome(options=options)
         st.success("✅ WebDriver initialized successfully!")
         return driver
@@ -548,10 +549,6 @@ def setup_webdriver(headless=True):
         st.error(f"Error Type: {type(e).__name__}")
         st.error(f"Error Message: {e}")
         st.code(traceback.format_exc())
-        st.warning(
-            "This may indicate a deeper issue with the browser installation "
-            "or a permissions problem on the Streamlit Cloud environment."
-        )
         return None
 
 
