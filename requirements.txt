@@ -3,7 +3,7 @@ streamlit
 
 # Web Scraping
 selenium
-twocaptcha-python
+2captcha-python
 requests
 
 # Document Processing
