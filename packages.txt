@@ -1,5 +1,7 @@
+# Install the browser itself
 chromium
-chromedriver
+
+# Essential system libraries for the driver to run
 libglib2.0-0
 libnss3
 libgconf-2-4

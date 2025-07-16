@@ -522,48 +522,30 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
 
 def setup_webdriver(headless=True):
     """
-    The definitive and most robust webdriver setup for Streamlit Cloud.
-    This version explicitly finds and uses the chromedriver installed
-    via packages.txt, bypassing potential Selenium Manager issues.
+    A simplified and reliable webdriver setup that relies on Selenium Manager.
     """
     options = webdriver.chrome.options.Options()
 
-    # All necessary arguments for a headless environment
     if headless:
         options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-infobars")
 
-    # Use shutil.which to find the chromedriver executable installed by packages.txt
-    # This now looks for the standard 'chromedriver' name.
-    chromedriver_path = shutil.which('chromedriver')
-    
-    # Check if the driver was found
-    if chromedriver_path:
-        st.info(f"Found chromedriver at: {chromedriver_path}")
-    else:
-        st.error("Chromedriver not found in PATH. Please verify your packages.txt file.")
-        return None
-
-    service = webdriver.chrome.service.Service(
-        executable_path=chromedriver_path
-    )
-    
+    # This simple call triggers the built-in Selenium Manager to
+    # find the browser (installed by packages.txt) and download the correct driver.
     try:
-        st.info("Initializing WebDriver with explicitly found driver...")
-        driver = webdriver.Chrome(service=service, options=options)
+        st.info("Initializing WebDriver using Selenium Manager...")
+        driver = webdriver.Chrome(options=options)
         st.success("✅ WebDriver initialized successfully!")
         return driver
     except Exception as e:
-        st.error("🔥 Failed to initialize WebDriver even with explicit path:")
-        st.error(f"Error Type: {type(e).__name__}")
+        st.error("🔥 Failed to initialize WebDriver:")
         st.error(f"Error Message: {e}")
         st.code(traceback.format_exc())
         return None
+
 
 
 def perform_login(driver, wait, group_name, username, password, api_key):
