@@ -1,6 +1,7 @@
 import streamlit as st
 import tempfile
 import os
+import shutil
 import traceback
 from selenium import webdriver
 from io import BytesIO
@@ -521,31 +522,44 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
 
 def setup_webdriver(headless=True):
     """
-    The definitive 'bulletproof' webdriver setup for Streamlit Cloud.
-    This version adds every known argument to ensure stability in a
-    minimal headless Linux environment.
+    The definitive and most robust webdriver setup for Streamlit Cloud.
+    This version explicitly finds and uses the chromedriver installed
+    via packages.txt, bypassing potential Selenium Manager issues.
     """
     options = webdriver.chrome.options.Options()
-    
+
+    # All necessary arguments for a headless environment
     if headless:
         options.add_argument("--headless")
-        
     options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
+    # Add arguments to disable extensions and info bars
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-infobars")
-    options.add_argument("--disable-popup-blocking")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument("--disable-blink-features=AutomationControlled")
+
+    # Use shutil.which to find the chromedriver executable installed by packages.txt
+    chromedriver_path = shutil.which('chromium-chromedriver')
+    
+    # Check if the driver was found
+    if chromedriver_path:
+        st.info(f"Found chromedriver at: {chromedriver_path}")
+    else:
+        st.error("Chromium-chromedriver not found in PATH. Check your packages.txt file.")
+        return None
+
+    service = webdriver.chrome.service.Service(
+        executable_path=chromedriver_path
+    )
     
     try:
-        st.info("Initializing WebDriver with final 'bulletproof' options...")
-        driver = webdriver.Chrome(options=options)
+        st.info("Initializing WebDriver with explicitly found driver...")
+        driver = webdriver.Chrome(service=service, options=options)
         st.success("✅ WebDriver initialized successfully!")
         return driver
     except Exception as e:
-        st.error("🔥 Failed to initialize WebDriver. This is the critical error:")
+        st.error("🔥 Failed to initialize WebDriver even with explicit path:")
         st.error(f"Error Type: {type(e).__name__}")
         st.error(f"Error Message: {e}")
         st.code(traceback.format_exc())
