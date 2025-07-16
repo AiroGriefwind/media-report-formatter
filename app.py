@@ -518,25 +518,36 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
 # =============================================================================
 
 def setup_webdriver(headless=True):
-    """Setup Chrome webdriver with an option for visible (headed) mode."""
-    chrome_options = Options()
-    
-    # This is the key change: only add the "--headless" argument
-    # if the 'headless' parameter is True.
+    """
+    Setup Chrome webdriver specifically for Streamlit Cloud deployment.
+    This version is more robust and explicitly defines paths for the browser and driver.
+    """
+    options = webdriver.chrome.options.Options()
     if headless:
-        chrome_options.add_argument("--headless")
-        
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        options.add_argument("--headless")
+    
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
+    
+    # Standard binary locations for chromium on Streamlit Cloud
+    options.binary_location = "/usr/bin/chromium-browser"
+    
+    # The service object points to the chromedriver installed by packages.txt
+    service = webdriver.chrome.service.Service(
+        executable_path="/usr/bin/chromium-chromedriver"
+    )
     
     try:
-        return webdriver.Chrome(options=chrome_options)
+        # Pass both the service and options to the webdriver
+        driver = webdriver.Chrome(service=service, options=options)
+        return driver
     except Exception as e:
-        st.error(f"Failed to setup webdriver: {str(e)}")
+        st.error(f"Failed to setup webdriver. Error: {str(e)}")
+        st.code(traceback.format_exc()) # Show full traceback for debugging
         return None
+
 
 
 def perform_login(driver, wait, group_name, username, password, api_key):
