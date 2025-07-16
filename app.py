@@ -535,18 +535,18 @@ def setup_webdriver(headless=True):
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    # Add arguments to disable extensions and info bars
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-infobars")
 
     # Use shutil.which to find the chromedriver executable installed by packages.txt
-    chromedriver_path = shutil.which('chromium-chromedriver')
+    # This now looks for the standard 'chromedriver' name.
+    chromedriver_path = shutil.which('chromedriver')
     
     # Check if the driver was found
     if chromedriver_path:
         st.info(f"Found chromedriver at: {chromedriver_path}")
     else:
-        st.error("Chromium-chromedriver not found in PATH. Check your packages.txt file.")
+        st.error("Chromedriver not found in PATH. Please verify your packages.txt file.")
         return None
 
     service = webdriver.chrome.service.Service(

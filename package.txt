@@ -1,6 +1,6 @@
-# Base browser and driver
+# Base browser and an alternative, more common driver package name
 chromium-browser
-chromium-chromedriver
+chromedriver
 
 # Essential dependencies for Chromedriver on headless Linux
 libglib2.0-0
