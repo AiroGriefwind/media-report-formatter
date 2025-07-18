@@ -4,10 +4,16 @@ import os
 import shutil
 import traceback
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service as ChromeService
+from webdriver_manager.chrome import ChromeDriverManager
 from io import BytesIO
 import time
 import base64
 import requests
+
+#Import for retrying functions
+from functools import wraps
+
 import traceback
 from collections import defaultdict
 import re
@@ -67,6 +73,45 @@ TITLE_MODIFICATIONS = []
 
 # Web scraping URL
 WISERS_URL = 'https://login.wisers.net/'
+
+# =============================================================================
+# RETRY DECORATOR
+# =============================================================================
+
+
+def retry_step(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        st = kwargs.get('st_module')  # Pass Streamlit as 'st_module' in function call
+        driver = kwargs.get('driver')
+        retry_limit = 3
+        for trial in range(1, retry_limit + 1):
+            try:
+                result = func(*args, **kwargs)
+                if st:
+                    st.write(f"✅ Step {func.__name__} succeeded on attempt {trial}")
+                return result
+            except Exception as e:
+                if st:
+                    st.warning(f"⚠️ Step {func.__name__} failed on attempt {trial}: {e}")
+                if driver and st:
+                    try:
+                        img_bytes = driver.get_screenshot_as_png()
+                        st.image(img_bytes, caption=f"Screencap after failure in {func.__name__}, attempt {trial}")
+                        st.download_button(
+                            label=f"Download {func.__name__}_attempt{trial}_screenshot.png",
+                            data=img_bytes,
+                            file_name=f"{func.__name__}_attempt{trial}_screenshot.png",
+                            mime="image/png"
+                        )
+                    except Exception as screencap_err:
+                        if st:
+                            st.warning(f"Screencap failed: {screencap_err}")
+                time.sleep(2)  # brief pause before retrying
+        if st:
+            st.error(f"❌ Step {func.__name__} failed after {retry_limit} attempts.")
+        raise Exception(f"Step {func.__name__} failed after {retry_limit} attempts.")
+    return wrapper
 
 # =============================================================================
 # DOCUMENT FORMATTING FUNCTIONS
@@ -650,81 +695,83 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
 # WEB SCRAPING FUNCTIONS (Updated from wiser_scrape.py)
 # =============================================================================
 
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service as ChromeService
+from webdriver_manager.chrome import ChromeDriverManager
 
-def setup_webdriver(headless=True):
-    """
-    The definitive, hardened webdriver setup for Streamlit Cloud.
-    This version includes a comprehensive set of arguments to ensure
-    Chrome starts reliably in a containerized environment.
-    """
+@retry_step
+def setup_webdriver(headless=True, **kwargs):
+    """Sets up and returns a Selenium WebDriver instance with robust options."""
+    st_module = kwargs.get('st_module')
+
+    if st_module:
+        st_module.write("Setting up Chrome options...")
+        
     options = webdriver.ChromeOptions()
     if headless:
-        options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--disable-setuid-sandbox")
-    options.add_argument("--disable-infobars")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument("--remote-debugging-port=9222")
-    options.add_argument("--single-process")
-    options.add_argument("--disable-background-networking")
-    options.add_argument("--disable-default-apps")
-    options.add_argument("--disable-client-side-phishing-detection")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("--mute-audio")
-    options.add_argument("--no-zygote")
+        options.add_argument("--headless")
+    
+    # --- Add these stability options ---
+    options.add_argument("--no-sandbox") # Bypasses OS security model, required in some environments.
+    options.add_argument("--disable-dev-shm-usage") # Overcomes limited resource problems.
+    options.add_argument("--disable-gpu") # Applicable for systems without a dedicated GPU.
+    options.add_argument("--start-maximized") # Start with a maximized window.
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-    try:
-        driver = webdriver.Chrome(options=options)
-        return driver
-    except Exception as e:
-        st.error(f"Failed to start headless Chrome: {e}")
-        st.code(traceback.format_exc())
-        return None
+    if st_module:
+        st_module.write("Installing/updating ChromeDriver...")
+
+    driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=options)
+    
+    if st_module:
+        st_module.write("✅ WebDriver setup complete.")
+    return driver
+        
 
 
 
-
-def perform_login(driver, wait, group_name, username, password, api_key):
+@retry_step
+def perform_login(driver, wait, group_name, username, password, api_key, **kwargs):
     """Handle login process with captcha solving"""
-    try:
-        driver.get(WISERS_URL)
+
+    driver.get(WISERS_URL)
+    
+    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[data-qa-ci="groupid"]'))).send_keys(group_name)
+    driver.find_element(By.CSS_SELECTOR, 'input[data-qa-ci="userid"]').send_keys(username)
+    driver.find_element(By.CSS_SELECTOR, 'input[data-qa-ci="password"]').send_keys(password)
+
+    captcha_img = driver.find_element(By.CSS_SELECTOR, 'img.CaptchaField__CaptchaImage-hffgxm-5')
+    captcha_src = captcha_img.get_attribute('src')
+    
+    if captcha_src.startswith('data:image'):
+        img_data = base64.b64decode(captcha_src.split(',')[1])
+    else:
+        img_data = requests.get(captcha_src).content
+    
+    # Use a temporary file for captcha image in Streamlit environment
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_captcha:
+        tmp_captcha.write(img_data)
+        tmp_captcha_path = tmp_captcha.name
+
+    solver = TwoCaptcha(api_key)
+    captcha_text = solver.normal(tmp_captcha_path)['code']
+    os.remove(tmp_captcha_path) # Clean up the captcha image
+
+    driver.find_element(By.CSS_SELECTOR, 'input.CaptchaField__Input-hffgxm-4').send_keys(captcha_text)
+
+    login_btn = driver.find_element(By.CSS_SELECTOR, 'input[data-qa-ci="button-login"]')
+    wait.until(lambda d: login_btn.is_enabled())
+    login_btn.click()
+
+    if st:
+        st.write("Login button clicked. Verifying successful login...")
         
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[data-qa-ci="groupid"]'))).send_keys(group_name)
-        driver.find_element(By.CSS_SELECTOR, 'input[data-qa-ci="userid"]').send_keys(username)
-        driver.find_element(By.CSS_SELECTOR, 'input[data-qa-ci="password"]').send_keys(password)
-
-        captcha_img = driver.find_element(By.CSS_SELECTOR, 'img.CaptchaField__CaptchaImage-hffgxm-5')
-        captcha_src = captcha_img.get_attribute('src')
+    wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.sc-1kg7aw5-0.dgeiTV > button')))
         
-        if captcha_src.startswith('data:image'):
-            img_data = base64.b64decode(captcha_src.split(',')[1])
-        else:
-            img_data = requests.get(captcha_src).content
-        
-        # Use a temporary file for captcha image in Streamlit environment
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_captcha:
-            tmp_captcha.write(img_data)
-            tmp_captcha_path = tmp_captcha.name
 
-        solver = TwoCaptcha(api_key)
-        captcha_text = solver.normal(tmp_captcha_path)['code']
-        os.remove(tmp_captcha_path) # Clean up the captcha image
 
-        driver.find_element(By.CSS_SELECTOR, 'input.CaptchaField__Input-hffgxm-4').send_keys(captcha_text)
-
-        login_btn = driver.find_element(By.CSS_SELECTOR, 'input[data-qa-ci="button-login"]')
-        wait.until(lambda d: login_btn.is_enabled())
-        login_btn.click()
-        
-        return True
-    except Exception as e:
-        st.error(f"Login failed: {str(e)}")
-        return False
-
-def close_tutorial_modal_ROBUST(driver, wait, status_text):
+@retry_step
+def close_tutorial_modal_ROBUST(driver, wait, status_text, **kwargs):
     """Robustly closes the tutorial modal that appears after login."""
     status_text.text("Attempting to close tutorial modal...")
     try:
@@ -738,213 +785,229 @@ def close_tutorial_modal_ROBUST(driver, wait, status_text):
     except Exception as e:
         st.warning(f"Modal could not be closed. Continuing... Error: {e}")
 
-def switch_language_to_traditional_chinese(driver, wait):
-    """Switches the language to Traditional Chinese."""
-    try:
-        waffle_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.sc-1kg7aw5-0.dgeiTV > button')))
-        waffle_button.click()
-        lang_toggle = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'li.wo__header__nav__navbar__item.dropdown > a.dropdown-toggle')))
-        driver.execute_script("arguments[0].click();", lang_toggle)
-        trad_chinese_link = wait.until(EC.element_to_be_clickable((By.XPATH, '//a[span[text()="繁體中文"]]')))
-        trad_chinese_link.click()
-        wait.until(EC.staleness_of(waffle_button))
-        time.sleep(3)
-        return True
-    except Exception as e:
-        st.error(f"Language switch failed: {e}")
-        return False
+@retry_step
+def switch_language_to_traditional_chinese(driver, wait, **kwargs):
+    """Switches the UI language. Relies on @retry_step for error handling."""
+    st = kwargs.get('st_module')
+    if st:
+        st.write("Attempting to switch language...")
+    waffle_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.sc-1kg7aw5-0.dgeiTV > button')))
+    #waffle_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.sc-1kg7aw5-0.dgeiTV > retryTest')))
+    waffle_button.click()
+    lang_toggle = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'li.wo__header__nav__navbar__item.dropdown > a.dropdown-toggle')))
+    driver.execute_script("arguments[0].click();", lang_toggle)
+    trad_chinese_link = wait.until(EC.element_to_be_clickable((By.XPATH, '//a[span[text()="繁體中文"]]')))
+    trad_chinese_link.click()
+    wait.until(EC.staleness_of(waffle_button))
+    time.sleep(3)
+    return True
 
-def perform_author_search(driver, wait, author_name):
+@retry_step
+def perform_author_search(driver, wait, author_name, **kwargs):
     """Performs a search for a specific author."""
-    try:
-        toggle_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.toggle-collapse[data-toggle="collapse"]')))
-        driver.execute_script("arguments[0].click();", toggle_button)
-        time.sleep(3)
-        my_media_dropdown_toggle = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button.btn-naked.dropdown-toggle[data-toggle="dropdown"]')))
-        my_media_dropdown_toggle.click()
-        time.sleep(3)
-        hongkong_option = wait.until(EC.element_to_be_clickable((By.XPATH, '//label[span[text()="各大香港報章"]]')))
-        hongkong_option.click()
-        time.sleep(3)
-        author_input = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, 'input.form-control[placeholder="作者"]')))
-        author_input.clear()
-        author_input.send_keys(author_name)
-        search_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button#toggle-query-execute.btn.btn-primary')))
-        search_button.click()
-        return True
-    except Exception as e:
-        st.warning(f"Search automation failed for author {author_name}: {e}")
-        return False
+    toggle_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.toggle-collapse[data-toggle="collapse"]')))
+    driver.execute_script("arguments[0].click();", toggle_button)
+    time.sleep(3)
+    my_media_dropdown_toggle = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button.btn-naked.dropdown-toggle[data-toggle="dropdown"]')))
+    my_media_dropdown_toggle.click()
+    time.sleep(3)
+    hongkong_option = wait.until(EC.element_to_be_clickable((By.XPATH, '//label[span[text()="各大香港報章"]]')))
+    hongkong_option.click()
+    time.sleep(3)
+    author_input = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, 'input.form-control[placeholder="作者"]')))
+    author_input.clear()
+    author_input.send_keys(author_name)
+    search_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button#toggle-query-execute.btn.btn-primary')))
+    search_button.click()
 
-def wait_for_search_results(driver, wait):
-    """Waits for search results and returns True if found."""
-    try:
-        time.sleep(5)
-        result_selectors = [
-            'div.list-group-item.no-excerpt', 'div.list-group-item', '.article-main',
-            '[class*="list-group"]', '[class*="article"]'
-        ]
-        for selector in result_selectors:
-            if driver.find_elements(By.CSS_SELECTOR, selector):
-                return True
-        no_results_selectors = [
-            ".no-results", "[class*='no-result']", "[class*='empty']",
-            "div:contains('沒有結果')", "div:contains('無結果')"
-        ]
-        for selector in no_results_selectors:
-            if driver.find_elements(By.CSS_SELECTOR, selector):
-                return False
-        return False
-    except Exception as e:
-        st.warning(f"Error waiting for search results: {e}")
-        return False
+@retry_step
+def wait_for_search_results(driver, wait, **kwargs):
+    """
+    Waits for the search to complete and checks if results were found.
+    Returns True if results are present, False if a 'no results' message is found.
+    Raises an exception for the decorator if the page state is unrecognized.
+    """
+    st_module = kwargs.get('st_module')
+    if st_module:
+        st_module.write("Waiting for search results to load...")
 
-def click_first_result(driver, wait, original_window):
+    # Wait for a common container element to ensure the page has responded.
+    # This is more reliable than a fixed sleep.
+    try:
+        wait.until(EC.presence_of_element_located((
+            By.CSS_SELECTOR, 
+            # This selector waits for EITHER a results list OR a known no-results message
+            'div.list-group, div.list-group-item, .no-results, [class*="empty"]'
+        )))
+    except TimeoutException:
+        # If nothing loads at all, let the decorator handle it.
+        raise TimeoutException("Page did not load any known content after search.")
+
+    time.sleep(1) # Brief, tactical pause for any final JS rendering.
+
+    # --- 1. Check for any sign of success (results) ---
+    result_selectors = [
+        'div.list-group-item.no-excerpt', 
+        'div.list-group-item', 
+        '.article-main'
+    ]
+    for selector in result_selectors:
+        if driver.find_elements(By.CSS_SELECTOR, selector):
+            if st_module:
+                st_module.write("✅ Search results found.")
+            return True
+
+    # --- 2. Check for any sign of a clean failure (no results) ---
+    no_results_selectors = [
+        ".no-results", 
+        "[class*='no-result']", 
+        "[class*='empty']"
+    ]
+    for selector in no_results_selectors:
+        if driver.find_elements(By.CSS_SELECTOR, selector):
+            if st_module:
+                st_module.warning("ℹ️ No results found for this query.")
+            return False
+
+    # --- 3. Handle the ambiguous case ---
+    # If we get here, the page loaded something, but it was neither a result 
+    # nor a 'no results' message. This is an unexpected state.
+    # Raise an exception to trigger a retry.
+    raise Exception("Search page loaded, but content was unrecognized.")
+
+
+@retry_step
+def click_first_result(driver, wait, original_window, **kwargs):
     """Clicks the first search result and switches to the new tab."""
-    try:
-        first_article_link = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.list-group .list-group-item h4 a')))
-        first_article_link.click()
-        wait.until(EC.number_of_windows_to_be(2))
-        for window_handle in driver.window_handles:
-            if window_handle != original_window:
-                driver.switch_to.window(window_handle)
-                break
-        return True
-    except Exception as e:
-        st.warning(f"Error clicking first result: {e}")
-        return False
+    first_article_link = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.list-group .list-group-item h4 a')))
+    first_article_link.click()
+    wait.until(EC.number_of_windows_to_be(2))
+    for window_handle in driver.window_handles:
+        if window_handle != original_window:
+            driver.switch_to.window(window_handle)
+            break
 
-def go_back_to_search_form(driver, wait):
+
+@retry_step
+def go_back_to_search_form(driver, wait, **kwargs):
     """Returns to the main search page from the results page."""
-    try:
-        re_search_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.media-left > a[href="/wevo/home"]')))
-        re_search_button.click()
-        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button#toggle-query-execute.btn.btn-primary')))
-        time.sleep(3)
-        return True
-    except Exception as e:
-        st.error(f"Could not return to search form: {e}")
-        return False
+    re_search_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.media-left > a[href="/wevo/home"]')))
+    re_search_button.click()
+    wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button#toggle-query-execute.btn.btn-primary')))
+    time.sleep(3)
+    return True
 
-def parse_media_info_for_author(subheading_text, author_name):
+@retry_step
+def parse_media_info_for_author(subheading_text, author_name, **kwargs):
     """Parses media info and formats it with the author's name."""
-    try:
-        media_part = subheading_text.split('|')[0].strip()
-        page_match = re.search(r'([A-Z]\d{2})', media_part)
-        if page_match:
-            page_number = page_match.group(1)
-            media_name_part = media_part[:page_match.start()].strip()
-            mapped_name = next((v for k, v in MEDIA_NAME_MAPPINGS.items() if k in media_name_part), media_name_part)
-            return f"{mapped_name} {page_number} {author_name}："
-    except Exception:
-        pass
-    return f"{author_name}："
+    media_part = subheading_text.split('|')[0].strip()
+    page_match = re.search(r'([A-Z]\d{2})', media_part)
+    if page_match:
+        page_number = page_match.group(1)
+        media_name_part = media_part[:page_match.start()].strip()
+        mapped_name = next((v for k, v in MEDIA_NAME_MAPPINGS.items() if k in media_name_part), media_name_part)
+        return f"{mapped_name} {page_number} {author_name}："
 
-def scrape_author_article_content(driver, wait, author_name):
+@retry_step
+def scrape_author_article_content(driver, wait, author_name, **kwargs):
     """Scrapes and formats a full article for the author task."""
-    try:
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.article-detail')))
-        time.sleep(3)
-        title = driver.find_element(By.CSS_SELECTOR, 'h3').text.strip()
-        subheading_text = driver.find_element(By.CSS_SELECTOR, 'div.article-subheading').text.strip()
-        media_info = parse_media_info_for_author(subheading_text, author_name)
-        paragraphs = [p.text.strip() for p in driver.find_elements(By.CSS_SELECTOR, 'div.description p') if p.text.strip()]
-        if paragraphs:
-            formatted_first_paragraph = f"{media_info}{paragraphs[0]}"
-            full_content = [formatted_first_paragraph] + paragraphs[1:]
-            formatted_content_body = '\n\n'.join(full_content)
-            final_output = f"{title}\n\n{formatted_content_body}"
-        else:
-            final_output = title
-        return {'title': title, 'content': final_output}
-    except Exception as e:
-        st.warning(f"Error scraping author article for {author_name}: {e}")
-        return None
+    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.article-detail')))
+    time.sleep(3)
+    title = driver.find_element(By.CSS_SELECTOR, 'h3').text.strip()
+    subheading_text = driver.find_element(By.CSS_SELECTOR, 'div.article-subheading').text.strip()
+    media_info = parse_media_info_for_author(subheading_text, author_name, st_module=st)
+    paragraphs = [p.text.strip() for p in driver.find_elements(By.CSS_SELECTOR, 'div.description p') if p.text.strip()]
+    if paragraphs:
+        formatted_first_paragraph = f"{media_info}{paragraphs[0]}"
+        full_content = [formatted_first_paragraph] + paragraphs[1:]
+        formatted_content_body = '\n\n'.join(full_content)
+        final_output = f"{title}\n\n{formatted_content_body}"
+    else:
+        final_output = title
+    return {'title': title, 'content': final_output}
 
-def run_newspaper_editorial_task(driver, wait):
+
+@retry_step
+def run_newspaper_editorial_task(driver, wait, **kwargs):
     """Navigates to '社評' saved search and scrapes titles."""
-    try:
-        dropdown_toggle = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "li.dropdown-usersavedquery > a.dropdown-toggle")))
-        dropdown_toggle.click()
-        time.sleep(3)
-        edit_saved_search_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-target='#modal-saved-search-ws6']")))
-        edit_saved_search_btn.click()
-        wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#modal-saved-search-ws6")))
-        time.sleep(3)
-        editorial_item = wait.until(EC.element_to_be_clickable((By.XPATH, "//ul[@class='list-group']//h5[text()='社評']/ancestor::li")))
-        editorial_item.click()
-        time.sleep(3)
 
-        search_btn = None
-        selectors = [(By.CSS_SELECTOR, "div.modal-footer .btn-default:last-child"), (By.XPATH, "//div[@class='modal-footer']//button[text()='搜索']")]
-        for selector_type, selector in selectors:
+    dropdown_toggle = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "li.dropdown-usersavedquery > a.dropdown-toggle")))
+    dropdown_toggle.click()
+    time.sleep(3)
+    edit_saved_search_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-target='#modal-saved-search-ws6']")))
+    edit_saved_search_btn.click()
+    wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#modal-saved-search-ws6")))
+    time.sleep(3)
+    editorial_item = wait.until(EC.element_to_be_clickable((By.XPATH, "//ul[@class='list-group']//h5[text()='社評']/ancestor::li")))
+    editorial_item.click()
+    time.sleep(3)
+
+    search_btn = None
+    selectors = [(By.CSS_SELECTOR, "div.modal-footer .btn-default:last-child"), (By.XPATH, "//div[@class='modal-footer']//button[text()='搜索']")]
+    for selector_type, selector in selectors:
+        try:
+            search_btn = wait.until(EC.element_to_be_clickable((selector_type, selector)))
+            break
+        except TimeoutException:
+            continue
+    if search_btn:
+        search_btn.click()
+    else:
+        driver.execute_script("var buttons = document.querySelectorAll('div.modal-footer button'); for (var i = 0; i < buttons.length; i++) { if (buttons[i].textContent.trim() === '搜索') { buttons[i].click(); break; } }")
+    
+    wait.until(EC.invisibility_of_element_located((By.CSS_SELECTOR, "#modal-saved-search-ws6")))
+    
+    if wait_for_search_results(driver, wait, st_module=st):
+        articles = []
+        time.sleep(3)
+        results = driver.find_elements(By.CSS_SELECTOR, 'div.list-group-item.no-excerpt')
+        for result in results:
             try:
-                search_btn = wait.until(EC.element_to_be_clickable((selector_type, selector)))
-                break
-            except TimeoutException:
+                title = result.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a').text.strip()
+                media_name_raw = result.find_element(By.CSS_SELECTOR, 'small a').text.strip()
+                mapped_name = next((v for k, v in MEDIA_NAME_MAPPINGS.items() if k in media_name_raw), media_name_raw)
+                articles.append({'media': mapped_name, 'title': title})
+            except Exception:
                 continue
-        if search_btn:
-            search_btn.click()
-        else:
-            driver.execute_script("var buttons = document.querySelectorAll('div.modal-footer button'); for (var i = 0; i < buttons.length; i++) { if (buttons[i].textContent.trim() === '搜索') { buttons[i].click(); break; } }")
-        
-        wait.until(EC.invisibility_of_element_located((By.CSS_SELECTOR, "#modal-saved-search-ws6")))
-        
-        if wait_for_search_results(driver, wait):
-            articles = []
-            time.sleep(3)
-            results = driver.find_elements(By.CSS_SELECTOR, 'div.list-group-item.no-excerpt')
-            for result in results:
-                try:
-                    title = result.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a').text.strip()
-                    media_name_raw = result.find_element(By.CSS_SELECTOR, 'small a').text.strip()
-                    mapped_name = next((v for k, v in MEDIA_NAME_MAPPINGS.items() if k in media_name_raw), media_name_raw)
-                    articles.append({'media': mapped_name, 'title': title})
-                except Exception:
-                    continue
-            return articles
-        return []
-    except Exception as e:
-        st.error(f"Failed to run newspaper editorial task: {e}")
-        return []
+        return articles
+    return []
 
-def run_scmp_editorial_task(driver, wait):
+
+@retry_step
+def run_scmp_editorial_task(driver, wait, **kwargs):
     """Performs a manual search for SCMP editorials and scrapes titles."""
-    try:
-        toggle_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.toggle-collapse[data-toggle="collapse"]')))
-        driver.execute_script("arguments[0].click();", toggle_button)
-        time.sleep(2)
-        my_media_dropdown_toggle = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button.btn-naked.dropdown-toggle[data-toggle="dropdown"]')))
-        my_media_dropdown_toggle.click()
-        time.sleep(1)
-        hongkong_option = wait.until(EC.element_to_be_clickable((By.XPATH, '//label[span[text()="各大香港報章"]]')))
-        hongkong_option.click()
-        time.sleep(1)
-        author_input = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, 'input.form-control[placeholder="欄目"]')))
-        author_input.clear()
-        author_input.send_keys("editorial")
-        search_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button#toggle-query-execute.btn.btn-primary')))
-        search_button.click()
-        
-        if wait_for_search_results(driver, wait):
-            articles = []
-            results = driver.find_elements(By.CSS_SELECTOR, 'div.list-group-item.no-excerpt')
-            for result in results:
-                try:
-                    title = result.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a').text.strip()
-                    media_name_raw = result.find_element(By.CSS_SELECTOR, 'small a').text.strip()
-                    mapped_name = next((v for k, v in MEDIA_NAME_MAPPINGS.items() if k in media_name_raw), None)
-                    if mapped_name == 'SCMP':
-                        articles.append({'media': 'SCMP', 'title': title})
-                except Exception:
-                    continue
-            return articles
-        return []
-    except Exception as e:
-        st.error(f"Failed to run SCMP editorial task: {e}")
-        return []
+    toggle_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.toggle-collapse[data-toggle="collapse"]')))
+    driver.execute_script("arguments[0].click();", toggle_button)
+    time.sleep(2)
+    my_media_dropdown_toggle = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button.btn-naked.dropdown-toggle[data-toggle="dropdown"]')))
+    my_media_dropdown_toggle.click()
+    time.sleep(1)
+    hongkong_option = wait.until(EC.element_to_be_clickable((By.XPATH, '//label[span[text()="各大香港報章"]]')))
+    hongkong_option.click()
+    time.sleep(1)
+    author_input = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, 'input.form-control[placeholder="欄目"]')))
+    author_input.clear()
+    author_input.send_keys("editorial")
+    search_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button#toggle-query-execute.btn.btn-primary')))
+    search_button.click()
+    
+    if wait_for_search_results(driver, wait, st_module=st):
+        articles = []
+        results = driver.find_elements(By.CSS_SELECTOR, 'div.list-group-item.no-excerpt')
+        for result in results:
+            try:
+                title = result.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a').text.strip()
+                media_name_raw = result.find_element(By.CSS_SELECTOR, 'small a').text.strip()
+                mapped_name = next((v for k, v in MEDIA_NAME_MAPPINGS.items() if k in media_name_raw), None)
+                if mapped_name == 'SCMP':
+                    articles.append({'media': 'SCMP', 'title': title})
+            except Exception:
+                continue
+        return articles
+    return []
 
-def create_docx_report(author_articles_data, editorial_data, author_list, output_path):
+@retry_step
+def create_docx_report(author_articles_data, editorial_data, author_list, output_path, **kwargs):
     """Creates a .docx file with both the author and editorial sections."""
     doc = Document()
     style = doc.styles['Normal']
@@ -989,19 +1052,17 @@ def create_docx_report(author_articles_data, editorial_data, author_list, output
     doc.save(output_path)
     return output_path
 
-def logout(driver, wait):
+@retry_step
+def logout(driver, wait, **kwargs):
     """Logs out from the WISER system."""
-    try:
-        waffle_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.sc-1kg7aw5-0.dgeiTV > button')))
-        waffle_button.click()
-        time.sleep(1)
-        logout_link = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "li.wo__header__nav__navbar__item:not(.dropdown) a")))
-        logout_link.click()
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[data-qa-ci="groupid"]')))
-        return True
-    except Exception as e:
-        st.warning(f"Logout failed, but process is complete. Error: {e}")
-        return False
+
+    waffle_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.sc-1kg7aw5-0.dgeiTV > button')))
+    waffle_button.click()
+    time.sleep(1)
+    logout_link = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "li.wo__header__nav__navbar__item:not(.dropdown) a")))
+    logout_link.click()
+    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[data-qa-ci="groupid"]')))
+
 
 # =============================================================================
 # STREAMLIT APP
@@ -1108,8 +1169,13 @@ def main():
                                            value="李先知\n余錦賢\n傅流螢",
                                            help="Enter one author name per line. The script will search for the latest article from each.")
 
-        ## Checkbox for headless mode
+        st.sidebar.header("Debugging Options")
+        st.sidebar.markdown("---")
+        # Checkbox for headless mode
         run_headless = st.checkbox("Run in headless mode (faster, no visible browser)", value=True)
+        # Checkbox for keeping browser open for debugging
+        keep_browser_open = st.sidebar.checkbox("Keep browser open after script finishes/fails")
+
 
         if st.button("🚀 Start Scraping and Generate Report", type="primary"):            
             if not all([group_name, username, password, api_key]):
@@ -1123,11 +1189,14 @@ def main():
 
             progress_bar = st.progress(0)
             status_text = st.empty()
+
+            # Initialize driver to None outside the try block for the finally clause
+            driver = None
             
             try:
                 status_text.text("Setting up web driver...")
                 # Initialize the webdriver with headless checkbox value
-                driver = setup_webdriver(headless=run_headless)
+                driver = setup_webdriver(headless=run_headless, st_module=st)
                 # This will prevent the AttributeError and show the real error.
                 if driver is None:
                     st.error("Driver setup failed, cannot continue. See logs above for details.")
@@ -1135,18 +1204,12 @@ def main():
                 
                 wait = WebDriverWait(driver, 20)
                 progress_bar.progress(5, text="Driver ready. Logging in...")
-
-                if not perform_login(driver, wait, group_name, username, password, api_key):
-                    driver.quit()
-                    return
+                perform_login(driver, wait, group_name, username, password, api_key, st_module=st)
                 progress_bar.progress(10, text="Login successful. Finalizing setup...")
                 
                 time.sleep(5) # Wait for page load after login
-                close_tutorial_modal_ROBUST(driver, wait, status_text)
-                
-                if not switch_language_to_traditional_chinese(driver, wait):
-                    driver.quit()
-                    return
+                close_tutorial_modal_ROBUST(driver, wait, status_text, st_module=st)
+                switch_language_to_traditional_chinese(driver, wait, st_module=st)
                 progress_bar.progress(15, text="Language set. Starting author search...")
                 
                 original_window = driver.current_window_handle
@@ -1161,35 +1224,44 @@ def main():
                     status_text.text(f"({i+1}/{len(authors_list)}) Searching for author: {author}...")
                     progress_bar.progress(int(current_progress), text=f"Searching for {author}")
 
-                    if not perform_author_search(driver, wait, author):
-                        if not go_back_to_search_form(driver, wait): break
-                        continue
+                    # Directly call the search function. The decorator will handle retries/failures.
+                    perform_author_search(driver, wait, author, st_module=st)
                     
-                    if wait_for_search_results(driver, wait):
-                        if click_first_result(driver, wait, original_window):
-                            scraped_data = scrape_author_article_content(driver, wait, author)
-                            author_articles_data[author] = scraped_data
-                            driver.close()
-                            driver.switch_to.window(original_window)
+                    # Check for results. This function correctly returns True/False.
+                    if wait_for_search_results(driver, wait, st_module=st):
+                        # If results are found, proceed to click and scrape.
+                        # The 'if click_first_result(...)' check has been removed.
+                        click_first_result(driver, wait, original_window, st_module=st)
+                        
+                        scraped_data = scrape_author_article_content(driver, wait, author, st_module=st)
+                        author_articles_data[author] = scraped_data
+                        
+                        # This logic is now correctly executed.
+                        st.write("Closing article tab and returning to search results...")
+                        driver.close()
+                        driver.switch_to.window(original_window)
                     else:
+                        # This handles the case where no results are found.
                         author_articles_data[author] = None
                         st.info(f"No results found for {author}.")
 
-                    if not go_back_to_search_form(driver, wait): break
+                    # This function is now called with the driver correctly focused on the search results tab.
+                    go_back_to_search_form(driver, wait, st_module=st)
                 
                 # --- Editorial Tasks ---
                 final_author_progress = 15 + (len(authors_list) * progress_increment)
                 progress_bar.progress(int(final_author_progress), text="Scraping newspaper editorials...")
                 status_text.text("Scraping newspaper editorials (from saved search)...")
-                editorial_data = run_newspaper_editorial_task(driver, wait)
+                editorial_data = run_newspaper_editorial_task(driver, wait, st_module=st)
                 if editorial_data is None: editorial_data = []
 
-                if not go_back_to_search_form(driver, wait):
-                     raise Exception("Failed to navigate back for SCMP search.")
+                # Go back to the main search form to prepare for the next, different search.
+                st.write("Returning to main search form for SCMP task...")
+                go_back_to_search_form(driver, wait, st_module=st)
 
                 progress_bar.progress(int(final_author_progress + progress_increment), text="Scraping SCMP editorials...")
                 status_text.text("Scraping SCMP editorials (manual search)...")
-                scmp_editorial_data = run_scmp_editorial_task(driver, wait)
+                scmp_editorial_data = run_scmp_editorial_task(driver, wait, st_module=st)
                 if scmp_editorial_data:
                     editorial_data.extend(scmp_editorial_data)
                 
@@ -1198,11 +1270,11 @@ def main():
                 status_text.text("Creating final Word report...")
                 
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_report:
-                    output_path = create_docx_report(author_articles_data, editorial_data, authors_list, tmp_report.name)
+                    output_path = create_docx_report(author_articles_data, editorial_data, authors_list, tmp_report.name, st_module=st)
 
                 progress_bar.progress(95, text="Report generated. Logging out...")
                 status_text.text("Logging out...")
-                logout(driver, wait)
+                logout(driver, wait, st_module=st)
                 
                 with open(output_path, 'rb') as f:
                     st.download_button(
@@ -1220,16 +1292,22 @@ def main():
                     st.write(f"**{author}**: {'Article found' if data else 'No article found'}")
                 st.write(f"**Editorials**: Found {len(editorial_data)} total editorial articles.")
 
+                st.success("✅ Scraping process completed successfully!")
+
             except Exception as e:
-                st.error(f"An error occurred during scraping: {str(e)}")
+                st.error(f"❌ A critical error stopped the script: {str(e)}")
+                # The decorator will have already logged step-specific errors and screenshots.
                 st.code(traceback.format_exc())
             
             finally:
-                if 'driver':
-                    st.info("Quitting WebDriver session.")
-                    driver.quit()
-                if 'output_path' in locals() and os.path.exists(output_path):
-                    os.remove(output_path)
+                # This block now correctly checks if the driver exists and respects the checkbox
+                if 'driver' in locals() and driver:
+                    st.info(f"DEBUG: 'keep_browser_open' is set to: {keep_browser_open}")
+                    if keep_browser_open:
+                        st.warning("🤖 As requested, the browser window has been left open for inspection.")
+                    else:
+                        st.info("Quitting WebDriver session...")
+                        driver.quit()
 
 if __name__ == "__main__":
     main()
