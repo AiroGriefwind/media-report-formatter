@@ -14,6 +14,9 @@ import requests
 #Import for retrying functions
 from functools import wraps
 
+# Import for login error handling
+from selenium.common.exceptions import NoSuchElementException
+
 import traceback
 from collections import defaultdict
 import re
@@ -732,41 +735,80 @@ def setup_webdriver(headless=True, **kwargs):
 
 @retry_step
 def perform_login(driver, wait, group_name, username, password, api_key, **kwargs):
-    """Handle login process with captcha solving"""
+    """
+    Handles the login process, including captcha solving, and provides specific
+    feedback on login failure reasons.
+    """
+    st_module = kwargs.get('st_module')
+    if st_module:
+        st_module.write("Navigating to login page and filling credentials...")
 
     driver.get(WISERS_URL)
     
+    # --- Logic to fill the form ---
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[data-qa-ci="groupid"]'))).send_keys(group_name)
     driver.find_element(By.CSS_SELECTOR, 'input[data-qa-ci="userid"]').send_keys(username)
     driver.find_element(By.CSS_SELECTOR, 'input[data-qa-ci="password"]').send_keys(password)
-
-    captcha_img = driver.find_element(By.CSS_SELECTOR, 'img.CaptchaField__CaptchaImage-hffgxm-5')
-    captcha_src = captcha_img.get_attribute('src')
     
-    if captcha_src.startswith('data:image'):
+    # --- Captcha solving logic ---
+    try:
+        captcha_img = driver.find_element(By.CSS_SELECTOR, 'img.CaptchaField__CaptchaImage-hffgxm-5')
+        captcha_src = captcha_img.get_attribute('src')
         img_data = base64.b64decode(captcha_src.split(',')[1])
-    else:
-        img_data = requests.get(captcha_src).content
-    
-    # Use a temporary file for captcha image in Streamlit environment
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_captcha:
-        tmp_captcha.write(img_data)
-        tmp_captcha_path = tmp_captcha.name
-
-    solver = TwoCaptcha(api_key)
-    captcha_text = solver.normal(tmp_captcha_path)['code']
-    os.remove(tmp_captcha_path) # Clean up the captcha image
-
-    driver.find_element(By.CSS_SELECTOR, 'input.CaptchaField__Input-hffgxm-4').send_keys(captcha_text)
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_captcha:
+            tmp_captcha.write(img_data)
+            tmp_captcha_path = tmp_captcha.name
+        
+        solver = TwoCaptcha(api_key)
+        captcha_text = solver.normal(tmp_captcha_path)['code']
+        os.remove(tmp_captcha_path)
+        
+        driver.find_element(By.CSS_SELECTOR, 'input.CaptchaField__Input-hffgxm-4').send_keys(captcha_text)
+    except Exception as captcha_error:
+        # If captcha fails here, raise immediately to trigger retry
+        raise Exception(f"Failed during 2Captcha solving process: {captcha_error}")
 
     login_btn = driver.find_element(By.CSS_SELECTOR, 'input[data-qa-ci="button-login"]')
-    wait.until(lambda d: login_btn.is_enabled())
     login_btn.click()
 
-    if st:
-        st.write("Login button clicked. Verifying successful login...")
+    # --- NEW: Intelligent Login Verification ---
+    # Wait for either the dashboard (success) or an error message (failure) to appear
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.any_of(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.sc-1kg7aw5-0.dgeiTV > button')), # Success element
+                EC.visibility_of_element_located((By.CSS_SELECTOR, 'div.NewContent__StyledNewErrorCode-q19ga1-5')) # Failure element
+            )
+        )
+    except TimeoutException:
+        raise Exception("Login verification failed: The page did not load the dashboard or a known error message.")
+
+    # Check if an error message is present
+    try:
+        error_element = driver.find_element(By.CSS_SELECTOR, 'div.NewContent__StyledNewErrorCode-q19ga1-5')
+        error_text = error_element.text.strip()
         
-    wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.sc-1kg7aw5-0.dgeiTV > button')))
+        # Determine the specific error and create a user-friendly message
+        if "User over limit" in error_text:
+            msg = "Login Failed: The account has reached its login limit. It is likely already logged in elsewhere."
+        elif "captcha error" in error_text:
+            msg = "Login Failed: The captcha code was incorrect."
+        elif "Sorry, your login details are incorrect, please try again." in error_text:
+            msg = "Login Failed: Incorrect Group, Username, or Password."
+        else:
+            msg = f"Login Failed: An unrecognized error appeared: '{error_text}'"
+
+        # Display the specific error in Streamlit and raise an exception to trigger the retry decorator
+        if st_module:
+            st_module.warning(msg)
+        raise Exception(msg)
+        
+    except NoSuchElementException:
+        # If the error element wasn't found, the login must have been successful.
+        if st_module:
+            st_module.write("✅ Login successfully verified.")
+        # No error, so the function completes and the script continues.
+        return
         
 
 
