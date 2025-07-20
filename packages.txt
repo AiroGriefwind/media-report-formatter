@@ -19,3 +19,4 @@ libxss1
 libxtst6
 lsb-release
 wget
+webdriver-manager
