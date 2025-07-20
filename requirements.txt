@@ -3,14 +3,13 @@ streamlit
 
 # Web Scraping
 selenium
+webdriver-manager
 2captcha-python
 requests
 
 # Document Processing
 python-docx
 opencc-python-reimplemented
-
-webdriver-manager3
 
 # Note: Do not add packages like 'pygments' or 'rich'.
 # Streamlit will install them automatically as its own dependencies.
