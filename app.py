@@ -704,31 +704,38 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 @retry_step
 def setup_webdriver(headless=True, **kwargs):
-    """Sets up and returns a Selenium WebDriver instance with robust options."""
+    """Sets up WebDriver using Selenium Manager (no webdriver-manager needed)."""
     st_module = kwargs.get('st_module')
-
-    if st_module:
-        st_module.write("Setting up Chrome options...")
+    
+    try:
+        if st_module:
+            st_module.write("Setting up Chrome options...")
+            
+        options = webdriver.ChromeOptions()
+        if headless:
+            options.add_argument("--headless")
         
-    options = webdriver.ChromeOptions()
-    if headless:
-        options.add_argument("--headless")
-    
-    # --- Add these stability options ---
-    options.add_argument("--no-sandbox") # Bypasses OS security model, required in some environments.
-    options.add_argument("--disable-dev-shm-usage") # Overcomes limited resource problems.
-    options.add_argument("--disable-gpu") # Applicable for systems without a dedicated GPU.
-    options.add_argument("--start-maximized") # Start with a maximized window.
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+        # Stability options for Streamlit Cloud
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--remote-debugging-port=9222")
+        
+        # Let Selenium Manager handle driver management automatically
+        if st_module:
+            st_module.write("Using Selenium Manager for automatic driver management...")
+            
+        driver = webdriver.Chrome(options=options)  # No service parameter needed
+        
+        if st_module:
+            st_module.write("✅ WebDriver setup complete.")
+        return driver
+        
+    except Exception as e:
+        if st_module:
+            st_module.error(f"WebDriver setup failed: {e}")
+        return None
 
-    if st_module:
-        st_module.write("Installing/updating ChromeDriver...")
-
-    driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=options)
-    
-    if st_module:
-        st_module.write("✅ WebDriver setup complete.")
-    return driver
         
 
 
