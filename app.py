@@ -475,7 +475,7 @@ def add_article_to_document(doc, article_data, needs_spacing):
     """Add article to document"""
     p = doc.add_paragraph(article_data['text'], style='List Number')
     p.runs[0].bold = True
-    p.style = doc.styles['Normal']
+    #p.style = doc.styles['Normal']
     format_article_title(p, needs_spacing)
 
 def add_media_group_to_document(new_doc, media_group):
