@@ -474,8 +474,8 @@ def add_section_header_to_doc(doc, text):
 def add_article_to_document(doc, article_data, needs_spacing):
     """Add article to document"""
     p = doc.add_paragraph()
-    title_text = f"{article_data['section_index']}.    {article_data['text']}"
-    p.add_run(title_text).bold = True
+    p = doc.add_paragraph(style='List Number')  # Use Word's built-in numbered list style
+    p.add_run(article_data['text']).bold = True
     p.style = doc.styles['Normal']
     format_article_title(p, needs_spacing)
 
