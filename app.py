@@ -201,7 +201,7 @@ def transform_metadata_line(metadata_text, next_paragraph_text):
     
     # Extract media name and page number
     # Pattern: "媒体名 页码 栏目名" -> we want "媒体名 页码"
-    match = re.match(r'^(.+?)\s+([A-Z]?\d+(及多份報章)?)\s+(.*)$', main_part)
+    match = re.match(r'^(.+?)([A-Z]?\d+(?:及多份報章)?)(?:\s+[\u4e00-\u9fa5]+)?\s*\|', main_part)
     if not match:
         return metadata_text
     
