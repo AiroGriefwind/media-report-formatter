@@ -56,7 +56,7 @@ CORRECTION_MAP = {
 
 # Editorial media order
 EDITORIAL_MEDIA_ORDER = [
-    '商報', '文匯', '大公', '東方', '星島', '明報', '頭條', '經濟', '成報', 'am730', 'SCMP'
+    '商報', '大公', '文匯', '東方', '星島', '信報', '明報', '經濟', '成報', '頭條', 'am730', 'SCMP'
 ]
 
 # Universal media name mappings
