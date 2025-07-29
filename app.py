@@ -541,6 +541,7 @@ def extract_document_structure(doc_path, json_output_path=None):
     paragraphs = doc.paragraphs
     num_paragraphs = len(paragraphs)
     
+    skip_next = False
     for i, paragraph in enumerate(paragraphs):
         if skip_next:
             skip_next = False
