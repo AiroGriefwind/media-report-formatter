@@ -199,23 +199,31 @@ def transform_metadata_line(metadata_text, next_paragraph_text):
     
     main_part = parts[0].strip()
     
-    # Extract media name and page number
-    # Pattern: "媒体名 页码 栏目名" -> we want "媒体名 页码"
-    match = re.match(r'^([\u4e00-\u9fa5A-Za-z（）()]+)\s+([A-Z]\d{2})', main_part)
-    if not match:
+    # Detect full media name, page, and placeholder '=='
+    #    Regex: (media) (page)(==)? (optional section)
+    m = re.match(
+        r'^([\u4e00-\u9fa5A-Za-z（）()]+)\s+([A-Z]\d{2})(==)?(?:\s+[^\s]+)?',
+        main_part
+    )
+    if not m:
+        # Fallback to original if it doesn’t match
         return metadata_text
     
-    media_name = match.group(1)
-    page_number = match.group(2)
+    media_name = m.group(1)
+    page_number = m.group(2)
+    has_placeholder  = bool(m.group(3))
     
     # Convert long media name to short name using enhanced mapping
     short_media_name = get_short_media_name(media_name)
+
+    #  Rebuild the “及多份報章” phrase if the placeholder was present
+    suffix = '及多份報章' if has_placeholder else ''
     
     # Extract first sentence using Chinese period ‘。’ for a natural lead-in
     body = next_paragraph_text.strip()
 
 
-    transformed = f"{short_media_name} {page_number}：{body}"
+    transformed = f"{short_media_name} {page_number}{suffix}：{body}"
     return transformed
     
 
