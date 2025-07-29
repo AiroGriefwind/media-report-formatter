@@ -219,9 +219,8 @@ def transform_metadata_line(metadata_text, next_paragraph_text):
     #  Rebuild the “及多份報章” phrase if the placeholder was present
     suffix = '及多份報章' if has_placeholder else ''
     
-    # Extract first sentence using Chinese period ‘。’ for a natural lead-in
+    # Extract first paragraph
     body = next_paragraph_text.strip()
-
 
     transformed = f"{short_media_name} {page_number}{suffix}：{body}"
     return transformed
@@ -549,13 +548,14 @@ def extract_document_structure(doc_path, json_output_path=None):
     paragraphs = doc.paragraphs
     num_paragraphs = len(paragraphs)
     
+    # add paragraph while skipping first paragraph after metadata
     skip_next = False
     for i, paragraph in enumerate(paragraphs):
         if skip_next:
             skip_next = False
             continue  # Skip the paragraph after the metadata line
 
-        # old logic
+        
         original_text = paragraph.text.strip()
         text = convert_to_traditional_chinese(original_text)
         text = apply_gatekeeper_corrections(text)
