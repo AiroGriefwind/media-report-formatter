@@ -218,8 +218,6 @@ def transform_metadata_line(metadata_text, next_paragraph_text):
     transformed = f"{short_media_name} {page_number}：{body}"
     return transformed
     
-    
-    return transformed
 
 def get_short_media_name(full_media_name):
     """
@@ -543,23 +541,26 @@ def extract_document_structure(doc_path, json_output_path=None):
     paragraphs = doc.paragraphs
     num_paragraphs = len(paragraphs)
     
-    for i, paragraph in enumerate(paragraphs):
-        # Apply Chinese conversion to paragraph text
+    i = 0
+    while i < num_paragraphs:
+        paragraph = paragraphs[i]
         original_text = paragraph.text.strip()
         text = convert_to_traditional_chinese(original_text)
-        # Apply gatekeeper corrections after conversion
         text = apply_gatekeeper_corrections(text)
-        
-        # NEW: Check if this is new metadata format and transform it
         if is_new_metadata_format(original_text):
-        # Get next paragraph for content
             next_content = ""
             if i + 1 < num_paragraphs:
                 next_content = convert_to_traditional_chinese(paragraphs[i + 1].text.strip())
                 next_content = apply_gatekeeper_corrections(next_content)
-        
-            # Transform the metadata line to semicolon format
+            # Create meta+lead line
             text = transform_metadata_line(text, next_content)
+            # ADD TO STRUCTURE AS YOU CURRENTLY DO (meta/lead para)
+            # structure['other_content'].append({...})
+            # Now SKIP the body paragraph you just used as lead!
+            i += 2
+            continue
+        # all your other logic
+        i += 1
 
         section_type = detect_section_type(text)
         if section_type:
