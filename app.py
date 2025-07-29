@@ -555,7 +555,7 @@ def extract_document_structure(doc_path, json_output_path=None):
         # Get next paragraph for content
             next_content = ""
             if i + 1 < num_paragraphs:
-                next_content = convert_to_traditional_chinese(paragraphs[i + 2].text.strip())
+                next_content = convert_to_traditional_chinese(paragraphs[i + 1].text.strip())
                 next_content = apply_gatekeeper_corrections(next_content)
         
             # Transform the metadata line to semicolon format
