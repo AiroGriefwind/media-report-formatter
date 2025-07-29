@@ -212,13 +212,14 @@ def transform_metadata_line(metadata_text, next_paragraph_text):
     short_media_name = get_short_media_name(media_name)
     
     # Take first part of the next paragraph (limit to reasonable length)
-    first_content = next_paragraph_text.strip()
+    #first_content = next_paragraph_text.strip()
     # Limit to around 50-60 characters to avoid too long lines
-    if len(first_content) > 60:
-        first_content = first_content[:60]
+    #if len(first_content) > 60:
+    #    first_content = first_content[:60]
     
     # Format as "short_media_name page_number：content"
-    transformed = f"{short_media_name} {page_number}：{first_content}"
+    transformed = f"{short_media_name} {page_number}："
+    
     
     return transformed
 
