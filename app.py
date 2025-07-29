@@ -213,9 +213,9 @@ def transform_metadata_line(metadata_text, next_paragraph_text):
     
     # Extract first sentence using Chinese period ‘。’ for a natural lead-in
     body = next_paragraph_text.strip()
-    lead = body.split('。')[0] + '。' if '。' in body else body
 
-    transformed = f"{short_media_name} {page_number}：{lead}"
+
+    transformed = f"{short_media_name} {page_number}：{body}"
     return transformed
     
     
