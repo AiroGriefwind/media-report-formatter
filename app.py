@@ -541,26 +541,25 @@ def extract_document_structure(doc_path, json_output_path=None):
     paragraphs = doc.paragraphs
     num_paragraphs = len(paragraphs)
     
-    i = 0
-    while i < num_paragraphs:
-        paragraph = paragraphs[i]
+    for i, paragraph in enumerate(paragraphs):
+        if skip_next:
+            skip_next = False
+            continue  # Skip the paragraph after the metadata line
+
+        # old logic
         original_text = paragraph.text.strip()
         text = convert_to_traditional_chinese(original_text)
         text = apply_gatekeeper_corrections(text)
+
         if is_new_metadata_format(original_text):
             next_content = ""
             if i + 1 < num_paragraphs:
-                next_content = convert_to_traditional_chinese(paragraphs[i + 1].text.strip())
+                next_paragraph_text = paragraphs[i + 1].text.strip()
+                next_content = convert_to_traditional_chinese(next_paragraph_text)
                 next_content = apply_gatekeeper_corrections(next_content)
-            # Create meta+lead line
+            # Transform the metadata line with the *lead* of the next paragraph
             text = transform_metadata_line(text, next_content)
-            # ADD TO STRUCTURE AS YOU CURRENTLY DO (meta/lead para)
-            # structure['other_content'].append({...})
-            # Now SKIP the body paragraph you just used as lead!
-            i += 2
-            continue
-        # all your other logic
-        i += 1
+            skip_next = True   # Set flag to skip the next paragraph
 
         section_type = detect_section_type(text)
         if section_type:
