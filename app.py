@@ -197,6 +197,7 @@ def transform_metadata_line(metadata_text, next_paragraph_text):
     if len(parts) < 1:
         return metadata_text
     
+    next_paragraph_text = remove_reporter_phrases(next_paragraph_text)
     main_part = parts[0].strip()
     
     # Detect full media name, page, and placeholder '=='
@@ -608,6 +609,9 @@ def extract_document_structure(doc_path, json_output_path=None):
                 converted_content = convert_to_traditional_chinese(media_info['content'])
                 # Apply gatekeeper corrections to media content
                 converted_content = apply_gatekeeper_corrections(converted_content)
+                # Remove reporter phrases from media content
+                converted_content = remove_reporter_phrases(converted_content)
+
                 media_info['content'] = converted_content
                 current_media_group = {'clean_name': media_info['clean_name'], 'original_name': media_info['full_name'], 'start_index': i, 'first_item': converted_content, 'additional_items': []}
                 structure['editorial_media_groups'].append(current_media_group)
