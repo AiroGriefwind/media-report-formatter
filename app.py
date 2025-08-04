@@ -269,12 +269,18 @@ def remove_reporter_phrases(text):
     text = re.sub(r'(●香港文匯報記者|●香港文汇报记者).*$', '', text, flags=re.MULTILINE)
 
     #Remove reporting agency content between first colon and '报道：' or '報道：'
-    metaline_pattern = r'(.*?及多份報章)：([^：]*?)(报道：|報道：)'
-    match = re.search(metaline_pattern, text)
+    match = re.search(r'(^.+?：)', text)
     if match:
-        prefix = match.group(1)  # Everything before the first colon
-        suffix = text[match.end():]  # Everything after "報道："
-        text = text[:match.start()] + prefix + '：' + suffix
+        prefix = match.group(1)  # everything up to and including the first colon
+        rest = text[match.end():]  # everything after the first colon
+        
+        # Find 报道： or 報道： in the rest
+        rep_match = re.search(r'(报道：|報道：)', rest)
+        if rep_match:
+            # Remove text from start of rest up to and including 报道：/報道：
+            rest = rest[rep_match.end():].lstrip()
+            text = prefix + rest
+            
     # Remove 【...】 containing keywords
     pattern_brackets = r'【[^】]*?(记者|記者|报道|報道|报讯|報訊)[^】]*?】'
     text = re.sub(pattern_brackets, '', text)
