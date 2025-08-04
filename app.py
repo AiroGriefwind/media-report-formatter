@@ -261,6 +261,15 @@ def get_short_media_name(full_media_name):
     # If no match found, return the original name
     return full_media_name
 
+def remove_reporter_phrases(text):
+    # Remove specific strings first (both simplified and traditional variants)
+    text = re.sub(r'香港文[汇匯]报讯', '', text)
+    # Remove 【...】 or (...) that contain keywords
+    pattern = r'(【[^】]*(记者|記者|报道|報道|报讯|報訊)[^】]*】|（[^）]*(记者|記者|报道|報道|报讯|報訊)[^）]*）)'
+    text = re.sub(pattern, '', text)
+    # Strip extra whitespace
+    return text.strip()
+
 def convert_to_traditional_chinese(text):
     """Convert simplified Chinese to traditional Chinese"""
     if not text or not text.strip():
@@ -559,6 +568,8 @@ def extract_document_structure(doc_path, json_output_path=None):
         original_text = paragraph.text.strip()
         text = convert_to_traditional_chinese(original_text)
         text = apply_gatekeeper_corrections(text)
+
+        text = remove_reporter_phrases(text)
 
         if is_new_metadata_format(original_text):
             next_content = ""
