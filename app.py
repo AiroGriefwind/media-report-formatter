@@ -265,6 +265,15 @@ def get_short_media_name(full_media_name):
 def remove_reporter_phrases(text):
     if not text:
         return ""
+    #Remove `●香港文匯報記者` and anything after it
+    text = re.sub(r'●香港文匯報記者.*$', '', text)
+
+    #Remove reporting agency content between first colon and '报道：' or '報道：'
+    match = re.search(r'(.*?：)(.*?)(报道|報道)：', text)
+    if match:
+        start = match.start(2)
+        end = match.end(3) + 1  # include colon
+        text = text[:start] + text[end:]
     # Remove 【...】 containing keywords
     pattern_brackets = r'【[^】]*?(记者|記者|报道|報道|报讯|報訊)[^】]*?】'
     text = re.sub(pattern_brackets, '', text)
