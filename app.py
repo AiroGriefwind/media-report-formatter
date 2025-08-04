@@ -262,12 +262,27 @@ def get_short_media_name(full_media_name):
     return full_media_name
 
 def remove_reporter_phrases(text):
-    # Remove specific strings first (both simplified and traditional variants)
-    text = re.sub(r'香港文[汇匯]报讯', '', text)
-    # Remove 【...】 or (...) that contain keywords
-    pattern = r'(【[^】]*(记者|記者|报道|報道|报讯|報訊)[^】]*】|（[^）]*(记者|記者|报道|報道|报讯|報訊)[^）]*）)'
-    text = re.sub(pattern, '', text)
-    # Strip extra whitespace
+    """
+    Removes specific reporter-related phrases and bracketed content.
+    1. Removes full-width【】or half-width () brackets and their content
+       if they contain keywords like '记者', '報道', etc.
+    2. Removes the specific string '香港文汇报讯' or '香港文匯報訊'.
+    """
+    if not text:
+        return ""
+
+    # Pattern to find keywords within 【...】
+    pattern_brackets = r'【[^】]*?(?:记者|記者|报道|報道|报讯|報訊)[^】]*?】'
+    text = re.sub(pattern_brackets, '', text)
+
+    # Pattern to find keywords within (...)
+    pattern_parentheses = r'（[^）]*?(?:记者|記者|报道|報道|报讯|報訊)[^）]*?）'
+    text = re.sub(pattern_parentheses, '', text)
+    
+    # Remove specific media source strings
+    text = text.replace('香港文汇报讯', '').replace('香港文匯報訊', '')
+    
+    # Return the cleaned text, stripping any leading/trailing whitespace
     return text.strip()
 
 def convert_to_traditional_chinese(text):
