@@ -280,7 +280,7 @@ def remove_reporter_phrases(text):
             # Remove text from start of rest up to and including 报道：/報道：
             rest = rest[rep_match.end():].lstrip()
             text = prefix + rest
-            
+
     # Remove 【...】 containing keywords
     pattern_brackets = r'【[^】]*?(记者|記者|报道|報道|报讯|報訊)[^】]*?】'
     text = re.sub(pattern_brackets, '', text)
@@ -706,7 +706,11 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
     editorial_groups = {g['clean_name']: g for g in structure['editorial_media_groups']}
     for name in EDITORIAL_MEDIA_ORDER:
         if name in editorial_groups:
+            editorial_groups[name]['first_item'] = remove_reporter_phrases(editorial_groups[name]['first_item'])
+            for item in editorial_groups[name]['additional_items']:
+                item['text'] = remove_reporter_phrases(item['text'])
             add_media_group_to_document(new_doc, editorial_groups[name])
+
 
     all_content = []
     for content in structure['other_content']:
@@ -725,10 +729,12 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
             if content_data['type'] == 'section_header':
                 add_section_header_to_doc(new_doc, content_data['text'])
             else:
-                p = new_doc.add_paragraph(content_data['text'])
+                clean_text = remove_reporter_phrases(content_data['text'])
+                p = new_doc.add_paragraph(clean_text)
                 format_content_paragraph(p)
             previous_was_content = True
         elif content_type == 'article':
+            content_data['text'] = remove_reporter_phrases(content_data['text'])
             add_article_to_document(new_doc, content_data, previous_was_content)
             previous_was_content = True
             last_article_idx = idx
