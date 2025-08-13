@@ -1608,26 +1608,28 @@ def main():
             st.warning("⚠️ Secrets not configured. Manual input will be required for web scraping.")
     except Exception as e:
         if isinstance(e, st.errors.StreamlitAPIException):
-             st.warning("⚠️ Secrets not configured locally. Manual input required.")
+            st.warning("⚠️ Secrets not configured locally. Manual input required.")
         else:
-             st.warning(f"Error checking secrets: {e}")
+            st.warning(f"Error checking secrets: {e}")
 
     st.title("AsiaNet Document Processing Tool")
     st.markdown("Choose between document formatting or web scraping functionality")
-    
-    tab1, tab2, tab3 = st.tabs(["📄 Document Formatting", "🌐 Web Scraping & Reporting"])
-    
+
+    # Update tabs to include the new International News tab
+    tab1, tab2, tab3 = st.tabs(["📄 Document Formatting", "🌐 Web Scraping & Reporting", "🌍 International News"])
+
     with tab1:
+        # Existing document formatting code remains the same
         st.header("Document Formatting")
         st.markdown("Upload your Word document to get it formatted automatically")
-        
+
         uploaded_file = st.file_uploader("Choose a Word document", type=['docx'])
-        
+
         if uploaded_file is not None:
             with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_file:
                 tmp_file.write(uploaded_file.getvalue())
                 tmp_file_path = tmp_file.name
-            
+
             try:
                 st.write("Processing your document...")
                 progress = st.progress(0)
@@ -1649,7 +1651,7 @@ def main():
                     doc.save(formatted_file)
                 
                 progress.progress(100, text="Formatting complete!")
-                
+
                 with open(formatted_file, 'rb') as f:
                     st.download_button(
                         label="📥 Download Formatted Document",
@@ -1657,29 +1659,29 @@ def main():
                         file_name=f"formatted_{uploaded_file.name}",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     )
-                
+
                 st.success("Document processed successfully!")
-                
+
             except Exception as e:
                 st.error(f"Error processing document: {str(e)}")
-            
             finally:
                 if 'tmp_file_path' in locals() and os.path.exists(tmp_file_path):
                     os.remove(tmp_file_path)
                 if 'formatted_file' in locals() and os.path.exists(formatted_file):
                     os.remove(formatted_file)
-    
+
     with tab2:
+        # Existing web scraping code remains exactly the same
         st.header("Web Scraping and Report Generation")
         st.markdown("Scrape articles by specified authors and newspaper editorials, then generate a combined Word report.")
-        
+
         with st.expander("⚙️ Scraping Configuration", expanded=True):
             col1, col2 = st.columns(2)
-            
+
             with col1:
                 try:
                     group_name = st.secrets["wisers"]["group_name"]
-                    username = st.secrets["wisers"]["username"] 
+                    username = st.secrets["wisers"]["username"]
                     password = st.secrets["wisers"]["password"]
                     st.success("✅ Credentials loaded from secrets")
                     st.info(f"Group: {group_name}\n\nUsername: {username}\n\nPassword: ****")
@@ -1688,7 +1690,7 @@ def main():
                     group_name = st.text_input("Group Name", value="SPRG1")
                     username = st.text_input("Username", placeholder="Enter username")
                     password = st.text_input("Password", type="password", placeholder="Enter password")
-            
+
             with col2:
                 try:
                     api_key = st.secrets["wisers"]["api_key"]
@@ -1696,24 +1698,22 @@ def main():
                 except (KeyError, AttributeError, st.errors.StreamlitAPIException):
                     st.warning("⚠️ API key not found in secrets")
                     api_key = st.text_input("2Captcha API Key", type="password", placeholder="Enter API key")
-                
-                authors_input = st.text_area("Authors to Search (one per line)", 
-                                           value="李先知\n余錦賢\n傅流螢",
-                                           help="Enter one author name per line. The script will search for the latest article from each.")
+
+        authors_input = st.text_area("Authors to Search (one per line)",
+                                   value="李先知\n余錦賢\n傅流螢",
+                                   help="Enter one author name per line. The script will search for the latest article from each.")
 
         st.sidebar.header("Debugging Options")
         st.sidebar.markdown("---")
-        # Checkbox for headless mode
         run_headless = st.checkbox("Run in headless mode (faster, no visible browser)", value=True)
-        # Checkbox for keeping browser open for debugging
         keep_browser_open = st.sidebar.checkbox("Keep browser open after script finishes/fails")
 
-
-        if st.button("🚀 Start Scraping and Generate Report", type="primary"):            
+        if st.button("🚀 Start Scraping and Generate Report", type="primary"):
+            # All existing scraping logic remains the same...
             if not all([group_name, username, password, api_key]):
                 st.error("❌ Please provide all required credentials and the API key to proceed.")
                 st.stop()
-            
+
             authors_list = [author.strip() for author in authors_input.split('\n') if author.strip()]
             if not authors_list:
                 st.error("❌ Please enter at least one author to search.")
@@ -1721,95 +1721,88 @@ def main():
 
             progress_bar = st.progress(0)
             status_text = st.empty()
-
-            # Initialize driver to None outside the try block for the finally clause
             driver = None
-            
+
             try:
                 status_text.text("Setting up web driver...")
-                # Initialize the webdriver with headless checkbox value
                 driver = setup_webdriver(headless=run_headless, st_module=st)
-                # This will prevent the AttributeError and show the real error.
+
                 if driver is None:
                     st.error("Driver setup failed, cannot continue. See logs above for details.")
                     st.stop()
-                
+
                 wait = WebDriverWait(driver, 20)
                 progress_bar.progress(5, text="Driver ready. Logging in...")
+
                 perform_login(driver=driver,wait=wait,group_name=group_name,username=username,password=password,api_key=api_key,st_module=st)
+
                 progress_bar.progress(10, text="Login successful. Finalizing setup...")
-                
-                time.sleep(5) # Wait for page load after login
+                time.sleep(5)
+
                 close_tutorial_modal_ROBUST(driver=driver, wait=wait, status_text=status_text, st_module=st)
                 switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
+
                 progress_bar.progress(15, text="Language set. Starting author search...")
-                
+
                 original_window = driver.current_window_handle
                 author_articles_data = {}
-                
-                total_steps = len(authors_list) + 3 # authors + 2 editorial tasks + report generation
+                total_steps = len(authors_list) + 3
                 progress_increment = 70 / total_steps
 
-                # --- Author Search Loop ---
+                # Author search loop - existing code
                 for i, author in enumerate(authors_list):
                     current_progress = 15 + (i * progress_increment)
                     status_text.text(f"({i+1}/{len(authors_list)}) Searching for author: {author}...")
                     progress_bar.progress(int(current_progress), text=f"Searching for {author}")
 
-                    # Directly call the search function. The decorator will handle retries/failures.
                     perform_author_search(driver=driver, wait=wait, author=author, st_module=st)
-                    
-                    # Check for results. This function correctly returns True/False.
+
                     if wait_for_search_results(driver=driver, wait=wait, st_module=st):
-                        # If results are found, proceed to click and scrape.
-                        # The 'if click_first_result(...)' check has been removed.
                         click_first_result(driver=driver, wait=wait, original_window=original_window, st_module=st)
-                        
                         scraped_data = scrape_author_article_content(driver=driver, wait=wait, author_name=author, st_module=st)
                         author_articles_data[author] = scraped_data
-                        
-                        # This logic is now correctly executed.
+
                         st.write("Closing article tab and returning to search results...")
                         driver.close()
                         driver.switch_to.window(original_window)
                     else:
-                        # This handles the case where no results are found.
                         author_articles_data[author] = None
                         st.info(f"No results found for {author}.")
 
-                    # This function is now called with the driver correctly focused on the search results tab.
                     go_back_to_search_form(driver=driver, wait=wait, st_module=st)
-                
-                # --- Editorial Tasks ---
+
+                # Editorial tasks - existing code
                 final_author_progress = 15 + (len(authors_list) * progress_increment)
                 progress_bar.progress(int(final_author_progress), text="Scraping newspaper editorials...")
                 status_text.text("Scraping newspaper editorials (from saved search)...")
+
                 editorial_data = run_newspaper_editorial_task(driver=driver, wait=wait, st_module=st)
                 if editorial_data is None: editorial_data = []
 
-                # Go back to the main search form to prepare for the next, different search.
                 st.write("Returning to main search form for SCMP task...")
                 go_back_to_search_form(driver=driver, wait=wait, st_module=st)
 
                 progress_bar.progress(int(final_author_progress + progress_increment), text="Scraping SCMP editorials...")
                 status_text.text("Scraping SCMP editorials (manual search)...")
+
                 scmp_editorial_data = run_scmp_editorial_task(driver=driver, wait=wait, st_module=st)
                 if scmp_editorial_data:
                     editorial_data.extend(scmp_editorial_data)
-                
-                # --- Report Generation ---
+
+                # Report generation - existing code
                 progress_bar.progress(int(final_author_progress + 2 * progress_increment), text="Generating Word document...")
                 status_text.text("Creating final Word report...")
-                
+
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_report:
                     output_path = create_docx_report(author_articles_data=author_articles_data,editorial_data=editorial_data,
-                                                     author_list=authors_list,output_path=tmp_report.name,st_module=st)
-
+                                                   author_list=authors_list,output_path=tmp_report.name,st_module=st)
 
                 progress_bar.progress(95, text="Report generated. Logging out...")
                 status_text.text("Logging out...")
+
                 logout(driver=driver, wait=wait, st_module=st)
-                
+                robust_logout_request(driver, st_module=st)
+
                 with open(output_path, 'rb') as f:
                     st.download_button(
                         label="📥 Download Combined Report",
@@ -1817,10 +1810,10 @@ def main():
                         file_name=f"香港社評報告_{datetime.now().strftime('%Y%m%d')}.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     )
-                
+
                 progress_bar.progress(100, text="✅ Process complete!")
                 status_text.success("✅ Scraping and report generation completed successfully!")
-                
+
                 st.subheader("📊 Scraped Content Summary")
                 for author, data in author_articles_data.items():
                     st.write(f"**{author}**: {'Article found' if data else 'No article found'}")
@@ -1830,25 +1823,18 @@ def main():
 
             except Exception as e:
                 st.error(f"❌ A critical error stopped the script: {str(e)}")
-                # The decorator will have already logged step-specific errors and screenshots.
                 st.code(traceback.format_exc())
-            
+
             finally:
-                # This block now correctly checks if the driver exists and respects the checkbox
                 try:
                     if 'driver' in locals() and driver:
-                        st.info(f"DEBUG: 'keep_browser_open' is set to: {keep_browser_open}")
-                        if keep_browser_open:
-                            st.warning("🤖 As requested, the browser window has been left open for inspection.")
-                            # Don't call driver.quit() here
+                        if not keep_browser_open:
+                            robust_logout_request(driver, st_module=st)
                         else:
-                            st.info("Quitting WebDriver session...")
-                            #try:
-                                #driver.quit()
-                            #except Exception as quit_err:
-                                #st.warning(f"Error quitting driver: {quit_err}")
+                            st.warning("🤖 As requested, the browser window has been left open for inspection.")
                 except Exception as cleanup_err:
                     st.error(f"Error in cleanup: {cleanup_err}")
+
     # NEW TAB 3: International News
     with tab3:
         st.header("International News Scraping")
@@ -2012,7 +1998,6 @@ def main():
                             st.warning("🤖 As requested, the browser window has been left open for inspection.")
                 except Exception as cleanup_err:
                     st.error(f"Error in cleanup: {cleanup_err}")
-
 
 if __name__ == "__main__":
     main()
