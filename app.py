@@ -1379,7 +1379,222 @@ def robust_logout_request(driver, st_module=None):
             import traceback
             st_module.code(traceback.format_exc())
 
+# =============================================================================
+# WEB SCRAPING FUNCTIONS For International News
+# =============================================================================
 
+@retry_step
+def run_international_news_task(**kwargs):
+    """Search for international news articles"""
+    driver = kwargs.get('driver')
+    wait = kwargs.get('wait')
+    st = kwargs.get('st_module')
+    
+    # Click on saved search dropdown
+    dropdown_toggle = wait.until(
+        EC.element_to_be_clickable((By.CSS_SELECTOR, "li.dropdown-usersavedquery > a.dropdown-toggle")))
+    dropdown_toggle.click()
+    time.sleep(3)
+
+    # Open saved search modal
+    edit_saved_search_btn = wait.until(
+        EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-target='#modal-saved-search-ws6']")))
+    edit_saved_search_btn.click()
+    wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#modal-saved-search-ws6")))
+    time.sleep(3)
+
+    # Look for "國際新聞" in the saved searches
+    international_item = wait.until(
+        EC.element_to_be_clickable((By.XPATH, "//ul[@class='list-group']//h5[text()='國際新聞']/ancestor::li")))
+    international_item.click()
+    time.sleep(3)
+
+    # Click search button
+    search_btn = None
+    selectors = [(By.CSS_SELECTOR, "div.modal-footer .btn-default:last-child"),
+                (By.XPATH, "//div[@class='modal-footer']//button[text()='搜索']")]
+    
+    for selector_type, selector in selectors:
+        try:
+            search_btn = wait.until(EC.element_to_be_clickable((selector_type, selector)))
+            break
+        except TimeoutException:
+            continue
+
+    if search_btn:
+        search_btn.click()
+    else:
+        driver.execute_script("""
+            var buttons = document.querySelectorAll('div.modal-footer button');
+            for (var i = 0; i < buttons.length; i++) {
+                if (buttons[i].textContent.trim() === '搜索') {
+                    buttons[i].click(); break;
+                }
+            }""")
+
+    # Wait for modal to close
+    wait.until(EC.invisibility_of_element_located((By.CSS_SELECTOR, "#modal-saved-search-ws6")))
+    
+    if wait_for_search_results(driver=driver, wait=wait, st_module=st):
+        # Scroll to load all content and wait for AJAX
+        scroll_to_load_all_content(driver=driver, st_module=st)
+        wait_for_ajax_complete(driver, timeout=10)
+        
+        # Get all article links for scraping
+        articles_data = []
+        
+        for retry in range(3):
+            results = driver.find_elements(By.CSS_SELECTOR, 'div.list-group-item.no-excerpt')
+            if st:
+                st.write(f"[International News Scrape] Attempt {retry+1}: {len(results)} items found.")
+            
+            # Limit to around 80-100 articles as requested
+            results = results[:100]
+            
+            for i, result in enumerate(results):
+                try:
+                    title_element = result.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a')
+                    title = title_element.text.strip()
+                    article_url = title_element.get_attribute('href')
+                    
+                    # Get media name
+                    try:
+                        media_name_raw = result.find_element(By.CSS_SELECTOR, 'small a').text.strip()
+                        mapped_name = next((v for k, v in MEDIA_NAME_MAPPINGS.items() if k in media_name_raw), media_name_raw)
+                    except:
+                        mapped_name = "Unknown"
+                    
+                    articles_data.append({
+                        'title': title,
+                        'url': article_url,
+                        'media': mapped_name,
+                        'index': i
+                    })
+                    
+                except Exception as e:
+                    if st:
+                        st.warning(f"Error extracting article {i}: {e}")
+                    continue
+            
+            if len(articles_data) > 0:
+                break
+            time.sleep(2)
+        
+        return articles_data
+    
+    return []
+
+@retry_step
+def scrape_international_article_detail(**kwargs):
+    """Scrape individual international news article content"""
+    driver = kwargs.get('driver')
+    wait = kwargs.get('wait')
+    article_url = kwargs.get('article_url')
+    original_window = kwargs.get('original_window')
+    st = kwargs.get('st_module')
+    
+    # Open article in new tab
+    driver.execute_script(f"window.open('{article_url}', '_blank');")
+    
+    # Wait for new window and switch to it
+    wait.until(EC.number_of_windows_to_be(2))
+    for window_handle in driver.window_handles:
+        if window_handle != original_window:
+            driver.switch_to.window(window_handle)
+            break
+    
+    # Wait for article content to load
+    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.article-detail')))
+    time.sleep(2)
+    
+    try:
+        # Get title
+        title = driver.find_element(By.CSS_SELECTOR, 'h3').text.strip()
+        
+        # Get subheading/metadata
+        try:
+            subheading_text = driver.find_element(By.CSS_SELECTOR, 'div.article-subheading').text.strip()
+        except:
+            subheading_text = ""
+        
+        # Get article content paragraphs
+        paragraphs = []
+        content_elements = driver.find_elements(By.CSS_SELECTOR, 'div.description p')
+        for p in content_elements:
+            text = p.text.strip()
+            if text:
+                paragraphs.append(text)
+        
+        # Combine content
+        content_body = '\n\n'.join(paragraphs) if paragraphs else ""
+        
+        article_data = {
+            'title': title,
+            'subheading': subheading_text,
+            'content': content_body,
+            'full_text': f"{title}\n\n{subheading_text}\n\n{content_body}" if content_body else title
+        }
+        
+        return article_data
+        
+    except Exception as e:
+        if st:
+            st.warning(f"Error scraping article content: {e}")
+        return None
+    
+    finally:
+        # Close current tab and return to original window
+        driver.close()
+        driver.switch_to.window(original_window)
+
+@retry_step
+def create_international_news_report(**kwargs):
+    """Create Word document report for international news"""
+    articles_data = kwargs.get('articles_data')
+    output_path = kwargs.get('output_path')
+    st = kwargs.get('st_module')
+    
+    from docx import Document
+    
+    doc = Document()
+    setup_document_fonts(doc)
+    
+    # Add title
+    doc.add_heading('國際新聞摘要', level=1)
+    doc.add_paragraph()
+    
+    # Add date
+    today_str = datetime.now().strftime("%Y年%m月%d日")
+    date_para = doc.add_paragraph(f"日期：{today_str}")
+    date_para.add_run().add_break()
+    
+    # Add articles
+    for i, article in enumerate(articles_data, 1):
+        if article and article.get('full_text'):
+            # Add article number and title
+            title_para = doc.add_paragraph()
+            title_run = title_para.add_run(f"{i}. {article['title']}")
+            title_run.bold = True
+            
+            # Add media source if available
+            if article.get('media'):
+                media_para = doc.add_paragraph(f"來源：{article['media']}")
+                media_para.style = doc.styles['Normal']
+            
+            # Add content
+            if article.get('content'):
+                for paragraph_text in article['content'].split('\n\n'):
+                    if paragraph_text.strip():
+                        doc.add_paragraph(paragraph_text.strip())
+            
+            # Add spacing between articles
+            doc.add_paragraph()
+    
+    # Add end marker
+    add_end_marker(doc)
+    
+    doc.save(output_path)
+    return output_path
 
 # =============================================================================
 # STREAMLIT APP
@@ -1400,7 +1615,7 @@ def main():
     st.title("AsiaNet Document Processing Tool")
     st.markdown("Choose between document formatting or web scraping functionality")
     
-    tab1, tab2 = st.tabs(["📄 Document Formatting", "🌐 Web Scraping & Reporting"])
+    tab1, tab2, tab3 = st.tabs(["📄 Document Formatting", "🌐 Web Scraping & Reporting"])
     
     with tab1:
         st.header("Document Formatting")
@@ -1632,6 +1847,169 @@ def main():
                                 #driver.quit()
                             #except Exception as quit_err:
                                 #st.warning(f"Error quitting driver: {quit_err}")
+                except Exception as cleanup_err:
+                    st.error(f"Error in cleanup: {cleanup_err}")
+    # NEW TAB 3: International News
+    with tab3:
+        st.header("International News Scraping")
+        st.markdown("Scrape 80-100 pieces of international news articles and generate a Word report.")
+
+        with st.expander("⚙️ International News Configuration", expanded=True):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                try:
+                    group_name_intl = st.secrets["wisers"]["group_name"]
+                    username_intl = st.secrets["wisers"]["username"]
+                    password_intl = st.secrets["wisers"]["password"]
+                    st.success("✅ Credentials loaded from secrets")
+                    st.info(f"Group: {group_name_intl}\n\nUsername: {username_intl}\n\nPassword: ****")
+                except (KeyError, AttributeError, st.errors.StreamlitAPIException):
+                    st.warning("⚠️ Secrets not found. Please enter credentials manually:")
+                    group_name_intl = st.text_input("Group Name", value="SPRG1", key="intl_group")
+                    username_intl = st.text_input("Username", placeholder="Enter username", key="intl_username")
+                    password_intl = st.text_input("Password", type="password", placeholder="Enter password", key="intl_password")
+
+            with col2:
+                try:
+                    api_key_intl = st.secrets["wisers"]["api_key"]
+                    st.success(f"✅ 2Captcha API Key loaded: {api_key_intl[:8]}...")
+                except (KeyError, AttributeError, st.errors.StreamlitAPIException):
+                    st.warning("⚠️ API key not found in secrets")
+                    api_key_intl = st.text_input("2Captcha API Key", type="password", placeholder="Enter API key", key="intl_api")
+
+        # International news specific settings
+        max_articles = st.slider("Maximum articles to scrape", min_value=50, max_value=150, value=100, 
+                                help="Limit the number of international news articles to scrape")
+
+        st.sidebar.header("International News Options")
+        st.sidebar.markdown("---")
+        run_headless_intl = st.sidebar.checkbox("Run in headless mode (faster, no visible browser)", value=True, key="intl_headless")
+        keep_browser_open_intl = st.sidebar.checkbox("Keep browser open after script finishes/fails", key="intl_keep_open")
+
+        if st.button("🌍 Start International News Scraping", type="primary"):
+            if not all([group_name_intl, username_intl, password_intl, api_key_intl]):
+                st.error("❌ Please provide all required credentials and the API key to proceed.")
+                st.stop()
+
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            driver = None
+
+            try:
+                status_text.text("Setting up web driver for international news...")
+                driver = setup_webdriver(headless=run_headless_intl, st_module=st)
+
+                if driver is None:
+                    st.error("Driver setup failed, cannot continue. See logs above for details.")
+                    st.stop()
+
+                wait = WebDriverWait(driver, 20)
+                progress_bar.progress(5, text="Driver ready. Logging in...")
+
+                perform_login(driver=driver, wait=wait, group_name=group_name_intl, 
+                             username=username_intl, password=password_intl, 
+                             api_key=api_key_intl, st_module=st)
+
+                progress_bar.progress(10, text="Login successful. Finalizing setup...")
+                time.sleep(5)
+
+                close_tutorial_modal_ROBUST(driver=driver, wait=wait, status_text=status_text, st_module=st)
+                switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
+
+                progress_bar.progress(20, text="Language set. Searching for international news...")
+
+                # Get international news article list
+                status_text.text("Searching for international news articles...")
+                articles_list = run_international_news_task(driver=driver, wait=wait, st_module=st)
+
+                if not articles_list:
+                    st.warning("No international news articles found.")
+                    st.stop()
+
+                # Limit articles to max_articles
+                articles_list = articles_list[:max_articles]
+                st.info(f"Found {len(articles_list)} articles to scrape.")
+
+                progress_bar.progress(30, text=f"Found {len(articles_list)} articles. Starting detailed scraping...")
+
+                # Scrape individual articles
+                scraped_articles = []
+                original_window = driver.current_window_handle
+                
+                for i, article_info in enumerate(articles_list):
+                    current_progress = 30 + (i * 50 / len(articles_list))
+                    status_text.text(f"Scraping article {i+1}/{len(articles_list)}: {article_info['title'][:50]}...")
+                    progress_bar.progress(int(current_progress), text=f"Scraping article {i+1}/{len(articles_list)}")
+
+                    try:
+                        article_content = scrape_international_article_detail(
+                            driver=driver, wait=wait, article_url=article_info['url'],
+                            original_window=original_window, st_module=st
+                        )
+                        
+                        if article_content:
+                            article_content['media'] = article_info['media']
+                            scraped_articles.append(article_content)
+                        
+                    except Exception as e:
+                        st.warning(f"Failed to scrape article {i+1}: {e}")
+                        continue
+
+                progress_bar.progress(80, text="Creating Word document report...")
+                status_text.text("Generating international news report...")
+
+                # Generate report
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_report:
+                    output_path = create_international_news_report(
+                        articles_data=scraped_articles, 
+                        output_path=tmp_report.name, 
+                        st_module=st
+                    )
+
+                progress_bar.progress(90, text="Report generated. Logging out...")
+                status_text.text("Logging out...")
+
+                logout(driver=driver, wait=wait, st_module=st)
+                robust_logout_request(driver, st_module=st)
+
+                # Provide download
+                with open(output_path, 'rb') as f:
+                    st.download_button(
+                        label="📥 Download International News Report",
+                        data=f.read(),
+                        file_name=f"國際新聞報告_{datetime.now().strftime('%Y%m%d')}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+
+                progress_bar.progress(100, text="✅ International news scraping complete!")
+                status_text.success("✅ International news scraping completed successfully!")
+
+                st.subheader("📊 International News Summary")
+                st.write(f"**Total articles scraped**: {len(scraped_articles)}")
+                
+                # Show media breakdown
+                media_count = {}
+                for article in scraped_articles:
+                    media = article.get('media', 'Unknown')
+                    media_count[media] = media_count.get(media, 0) + 1
+                
+                for media, count in sorted(media_count.items()):
+                    st.write(f"**{media}**: {count} articles")
+
+                st.success("✅ International news scraping process completed successfully!")
+
+            except Exception as e:
+                st.error(f"❌ A critical error stopped the international news script: {str(e)}")
+                st.code(traceback.format_exc())
+
+            finally:
+                try:
+                    if 'driver' in locals() and driver:
+                        if not keep_browser_open_intl:
+                            robust_logout_request(driver, st_module=st)
+                        else:
+                            st.warning("🤖 As requested, the browser window has been left open for inspection.")
                 except Exception as cleanup_err:
                     st.error(f"Error in cleanup: {cleanup_err}")
 
