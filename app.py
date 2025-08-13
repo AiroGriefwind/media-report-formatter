@@ -1385,104 +1385,137 @@ def robust_logout_request(driver, st_module=None):
 
 @retry_step
 def run_international_news_task(**kwargs):
-    """Search for international news articles"""
+    """Search for international news articles with fallback mechanisms"""
     driver = kwargs.get('driver')
     wait = kwargs.get('wait')
     st = kwargs.get('st_module')
     
-    # Click on saved search dropdown
-    dropdown_toggle = wait.until(
-        EC.element_to_be_clickable((By.CSS_SELECTOR, "li.dropdown-usersavedquery > a.dropdown-toggle")))
-    dropdown_toggle.click()
-    time.sleep(3)
+    try:
+        # Try the saved search approach first
+        dropdown_toggle = wait.until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "li.dropdown-usersavedquery > a.dropdown-toggle")))
+        dropdown_toggle.click()
+        time.sleep(3)
 
-    # Open saved search modal
-    edit_saved_search_btn = wait.until(
-        EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-target='#modal-saved-search-ws6']")))
-    edit_saved_search_btn.click()
-    wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#modal-saved-search-ws6")))
-    time.sleep(3)
+        edit_saved_search_btn = wait.until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-target='#modal-saved-search-ws6']")))
+        edit_saved_search_btn.click()
+        wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#modal-saved-search-ws6")))
+        time.sleep(3)
 
-    # Look for "國際新聞" in the saved searches
-    international_item = wait.until(
-        EC.element_to_be_clickable((By.XPATH, "//ul[@class='list-group']//h5[text()='國際新聞']/ancestor::li")))
-    international_item.click()
-    time.sleep(3)
-
-    # Click search button
-    search_btn = None
-    selectors = [(By.CSS_SELECTOR, "div.modal-footer .btn-default:last-child"),
-                (By.XPATH, "//div[@class='modal-footer']//button[text()='搜索']")]
-    
-    for selector_type, selector in selectors:
+        # Look for "國際新聞" in the saved searches
         try:
-            search_btn = wait.until(EC.element_to_be_clickable((selector_type, selector)))
-            break
-        except TimeoutException:
-            continue
-
-    if search_btn:
-        search_btn.click()
-    else:
-        driver.execute_script("""
-            var buttons = document.querySelectorAll('div.modal-footer button');
-            for (var i = 0; i < buttons.length; i++) {
-                if (buttons[i].textContent.trim() === '搜索') {
-                    buttons[i].click(); break;
-                }
-            }""")
-
-    # Wait for modal to close
-    wait.until(EC.invisibility_of_element_located((By.CSS_SELECTOR, "#modal-saved-search-ws6")))
-    
-    if wait_for_search_results(driver=driver, wait=wait, st_module=st):
-        # Scroll to load all content and wait for AJAX
-        scroll_to_load_all_content(driver=driver, st_module=st)
-        wait_for_ajax_complete(driver, timeout=10)
-        
-        # Get all article links for scraping
-        articles_data = []
-        
-        for retry in range(3):
-            results = driver.find_elements(By.CSS_SELECTOR, 'div.list-group-item.no-excerpt')
+            international_item = wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//ul[@class='list-group']//h5[text()='國際新聞']/ancestor::li")))
+            international_item.click()
+            time.sleep(3)
+            
             if st:
-                st.write(f"[International News Scrape] Attempt {retry+1}: {len(results)} items found.")
-            
-            # Limit to around 80-100 articles as requested
-            results = results[:100]
-            
-            for i, result in enumerate(results):
-                try:
-                    title_element = result.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a')
-                    title = title_element.text.strip()
-                    article_url = title_element.get_attribute('href')
-                    
-                    # Get media name
-                    try:
-                        media_name_raw = result.find_element(By.CSS_SELECTOR, 'small a').text.strip()
-                        mapped_name = next((v for k, v in MEDIA_NAME_MAPPINGS.items() if k in media_name_raw), media_name_raw)
-                    except:
-                        mapped_name = "Unknown"
-                    
-                    articles_data.append({
-                        'title': title,
-                        'url': article_url,
-                        'media': mapped_name,
-                        'index': i
-                    })
-                    
-                except Exception as e:
-                    if st:
-                        st.warning(f"Error extracting article {i}: {e}")
-                    continue
-            
-            if len(articles_data) > 0:
-                break
-            time.sleep(2)
+                st.write("✅ Found '國際新聞' saved search")
         
-        return articles_data
-    
-    return []
+        except TimeoutException:
+            if st:
+                st.warning("⚠️ '國際新聞' saved search not found. Checking available searches...")
+            
+            # List all available saved searches for debugging
+            try:
+                search_items = driver.find_elements(By.XPATH, "//ul[@class='list-group']//h5")
+                available_searches = [item.text.strip() for item in search_items if item.text.strip()]
+                if st and available_searches:
+                    st.info(f"Available saved searches: {', '.join(available_searches)}")
+            except:
+                pass
+            
+            # Close modal and return empty result
+            try:
+                close_btn = driver.find_element(By.CSS_SELECTOR, "#modal-saved-search-ws6 .close")
+                close_btn.click()
+                time.sleep(2)
+            except:
+                pass
+            
+            return []
+
+        # Click search button
+        search_btn = None
+        selectors = [(By.CSS_SELECTOR, "div.modal-footer .btn-default:last-child"),
+                    (By.XPATH, "//div[@class='modal-footer']//button[text()='搜索']")]
+        
+        for selector_type, selector in selectors:
+            try:
+                search_btn = wait.until(EC.element_to_be_clickable((selector_type, selector)))
+                break
+            except TimeoutException:
+                continue
+
+        if search_btn:
+            search_btn.click()
+        else:
+            driver.execute_script("""
+                var buttons = document.querySelectorAll('div.modal-footer button');
+                for (var i = 0; i < buttons.length; i++) {
+                    if (buttons[i].textContent.trim() === '搜索') {
+                        buttons[i].click(); break;
+                    }
+                }""")
+
+        # Wait for modal to close
+        wait.until(EC.invisibility_of_element_located((By.CSS_SELECTOR, "#modal-saved-search-ws6")))
+        
+        if wait_for_search_results(driver=driver, wait=wait, st_module=st):
+            # Scroll to load all content and wait for AJAX
+            scroll_to_load_all_content(driver=driver, st_module=st)
+            wait_for_ajax_complete(driver, timeout=10)
+            
+            # Get all article links for scraping
+            articles_data = []
+            
+            for retry in range(3):
+                results = driver.find_elements(By.CSS_SELECTOR, 'div.list-group-item.no-excerpt')
+                if st:
+                    st.write(f"[International News Scrape] Attempt {retry+1}: {len(results)} items found.")
+                
+                # Limit to around 80-100 articles as requested
+                results = results[:100]
+                
+                for i, result in enumerate(results):
+                    try:
+                        title_element = result.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a')
+                        title = title_element.text.strip()
+                        article_url = title_element.get_attribute('href')
+                        
+                        # Get media name
+                        try:
+                            media_name_raw = result.find_element(By.CSS_SELECTOR, 'small a').text.strip()
+                            mapped_name = next((v for k, v in MEDIA_NAME_MAPPINGS.items() if k in media_name_raw), media_name_raw)
+                        except:
+                            mapped_name = "Unknown"
+                        
+                        articles_data.append({
+                            'title': title,
+                            'url': article_url,
+                            'media': mapped_name,
+                            'index': i
+                        })
+                        
+                    except Exception as e:
+                        if st:
+                            st.warning(f"Error extracting article {i}: {e}")
+                        continue
+                
+                if len(articles_data) > 0:
+                    break
+                time.sleep(2)
+            
+            return articles_data
+        
+        return []
+        
+    except Exception as e:
+        if st:
+            st.error(f"Error in international news search: {e}")
+        return []
+
 
 @retry_step
 def scrape_international_article_detail(**kwargs):
@@ -1835,37 +1868,38 @@ def main():
                 except Exception as cleanup_err:
                     st.error(f"Error in cleanup: {cleanup_err}")
 
-    # NEW TAB 3: International News
-    with tab3:
-        st.header("International News Scraping")
-        st.markdown("Scrape 80-100 pieces of international news articles and generate a Word report.")
+    
+# NEW TAB 3: International News
+with tab3:
+    st.header("International News Scraping")
+    st.markdown("Scrape 80-100 pieces of international news articles and generate a Word report.")
 
-        with st.expander("⚙️ International News Configuration", expanded=True):
-            col1, col2 = st.columns(2)
+    with st.expander("⚙️ International News Configuration", expanded=True):
+        col1, col2 = st.columns(2)
 
-            with col1:
-                try:
-                    group_name_intl = st.secrets["wisers"]["group_name"]
-                    username_intl = st.secrets["wisers"]["username"]
-                    password_intl = st.secrets["wisers"]["password"]
-                    st.success("✅ Credentials loaded from secrets")
-                    st.info(f"Group: {group_name_intl}\n\nUsername: {username_intl}\n\nPassword: ****")
-                except (KeyError, AttributeError, st.errors.StreamlitAPIException):
-                    st.warning("⚠️ Secrets not found. Please enter credentials manually:")
-                    group_name_intl = st.text_input("Group Name", value="SPRG1", key="intl_group")
-                    username_intl = st.text_input("Username", placeholder="Enter username", key="intl_username")
-                    password_intl = st.text_input("Password", type="password", placeholder="Enter password", key="intl_password")
+        with col1:
+            try:
+                group_name_intl = st.secrets["wisers"]["group_name"]
+                username_intl = st.secrets["wisers"]["username"]
+                password_intl = st.secrets["wisers"]["password"]
+                st.success("✅ Credentials loaded from secrets")
+                st.info(f"Group: {group_name_intl}\n\nUsername: {username_intl}\n\nPassword: ****")
+            except (KeyError, AttributeError, st.errors.StreamlitAPIException):
+                st.warning("⚠️ Secrets not found. Please enter credentials manually:")
+                group_name_intl = st.text_input("Group Name", value="SPRG1", key="intl_group")
+                username_intl = st.text_input("Username", placeholder="Enter username", key="intl_username")
+                password_intl = st.text_input("Password", type="password", placeholder="Enter password", key="intl_password")
 
-            with col2:
-                try:
-                    api_key_intl = st.secrets["wisers"]["api_key"]
-                    st.success(f"✅ 2Captcha API Key loaded: {api_key_intl[:8]}...")
-                except (KeyError, AttributeError, st.errors.StreamlitAPIException):
-                    st.warning("⚠️ API key not found in secrets")
-                    api_key_intl = st.text_input("2Captcha API Key", type="password", placeholder="Enter API key", key="intl_api")
+        with col2:
+            try:
+                api_key_intl = st.secrets["wisers"]["api_key"]
+                st.success(f"✅ 2Captcha API Key loaded: {api_key_intl[:8]}...")
+            except (KeyError, AttributeError, st.errors.StreamlitAPIException):
+                st.warning("⚠️ API key not found in secrets")
+                api_key_intl = st.text_input("2Captcha API Key", type="password", placeholder="Enter API key", key="intl_api")
 
         # International news specific settings
-        max_articles = st.slider("Maximum articles to scrape", min_value=50, max_value=150, value=100, 
+        max_articles = st.slider("Maximum articles to scrape", min_value=50, max_value=150, value=100,
                                 help="Limit the number of international news articles to scrape")
 
         st.sidebar.header("International News Options")
@@ -1893,8 +1927,8 @@ def main():
                 wait = WebDriverWait(driver, 20)
                 progress_bar.progress(5, text="Driver ready. Logging in...")
 
-                perform_login(driver=driver, wait=wait, group_name=group_name_intl, 
-                             username=username_intl, password=password_intl, 
+                perform_login(driver=driver, wait=wait, group_name=group_name_intl,
+                             username=username_intl, password=password_intl,
                              api_key=api_key_intl, st_module=st)
 
                 progress_bar.progress(10, text="Login successful. Finalizing setup...")
@@ -1907,97 +1941,144 @@ def main():
 
                 # Get international news article list
                 status_text.text("Searching for international news articles...")
-                articles_list = run_international_news_task(driver=driver, wait=wait, st_module=st)
-
-                if not articles_list:
-                    st.warning("No international news articles found.")
-                    st.stop()
-
-                # Limit articles to max_articles
-                articles_list = articles_list[:max_articles]
-                st.info(f"Found {len(articles_list)} articles to scrape.")
-
-                progress_bar.progress(30, text=f"Found {len(articles_list)} articles. Starting detailed scraping...")
-
-                # Scrape individual articles
-                scraped_articles = []
-                original_window = driver.current_window_handle
                 
-                for i, article_info in enumerate(articles_list):
-                    current_progress = 30 + (i * 50 / len(articles_list))
-                    status_text.text(f"Scraping article {i+1}/{len(articles_list)}: {article_info['title'][:50]}...")
-                    progress_bar.progress(int(current_progress), text=f"Scraping article {i+1}/{len(articles_list)}")
+                # TRY to get articles, but don't stop script if it fails
+                articles_list = []
+                try:
+                    articles_list = run_international_news_task(driver=driver, wait=wait, st_module=st)
+                except Exception as search_error:
+                    st.error(f"Search for international news failed: {search_error}")
+                    articles_list = []
 
-                    try:
-                        article_content = scrape_international_article_detail(
-                            driver=driver, wait=wait, article_url=article_info['url'],
-                            original_window=original_window, st_module=st
+                # Handle the case where no articles are found, but continue to logout
+                if not articles_list:
+                    st.warning("⚠️ No international news articles found. This could mean:")
+                    st.info("• The '國際新聞' saved search doesn't exist")
+                    st.info("• The search returned no results")
+                    st.info("• There was an error accessing the search")
+                    
+                    progress_bar.progress(90, text="No articles found. Logging out...")
+                    status_text.text("No articles to scrape. Proceeding to logout...")
+                    
+                    # Create empty report
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_report:
+                        output_path = create_international_news_report(
+                            articles_data=[], 
+                            output_path=tmp_report.name, 
+                            st_module=st
                         )
-                        
-                        if article_content:
-                            article_content['media'] = article_info['media']
-                            scraped_articles.append(article_content)
-                        
-                    except Exception as e:
-                        st.warning(f"Failed to scrape article {i+1}: {e}")
-                        continue
+                    
+                    with open(output_path, 'rb') as f:
+                        st.download_button(
+                            label="📥 Download Empty Report",
+                            data=f.read(),
+                            file_name=f"國際新聞報告_空_{datetime.now().strftime('%Y%m%d')}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
+                
+                else:
+                    # Limit articles to max_articles
+                    articles_list = articles_list[:max_articles]
+                    st.info(f"Found {len(articles_list)} articles to scrape.")
 
-                progress_bar.progress(80, text="Creating Word document report...")
-                status_text.text("Generating international news report...")
+                    progress_bar.progress(30, text=f"Found {len(articles_list)} articles. Starting detailed scraping...")
 
-                # Generate report
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_report:
-                    output_path = create_international_news_report(
-                        articles_data=scraped_articles, 
-                        output_path=tmp_report.name, 
-                        st_module=st
-                    )
+                    # Scrape individual articles
+                    scraped_articles = []
+                    original_window = driver.current_window_handle
+                    
+                    for i, article_info in enumerate(articles_list):
+                        current_progress = 30 + (i * 50 / len(articles_list))
+                        status_text.text(f"Scraping article {i+1}/{len(articles_list)}: {article_info['title'][:50]}...")
+                        progress_bar.progress(int(current_progress), text=f"Scraping article {i+1}/{len(articles_list)}")
 
-                progress_bar.progress(90, text="Report generated. Logging out...")
+                        try:
+                            article_content = scrape_international_article_detail(
+                                driver=driver, wait=wait, article_url=article_info['url'],
+                                original_window=original_window, st_module=st
+                            )
+                            
+                            if article_content:
+                                article_content['media'] = article_info['media']
+                                scraped_articles.append(article_content)
+                            
+                        except Exception as e:
+                            st.warning(f"Failed to scrape article {i+1}: {e}")
+                            continue
+
+                    progress_bar.progress(80, text="Creating Word document report...")
+                    status_text.text("Generating international news report...")
+
+                    # Generate report
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_report:
+                        output_path = create_international_news_report(
+                            articles_data=scraped_articles, 
+                            output_path=tmp_report.name, 
+                            st_module=st
+                        )
+
+                    # Provide download
+                    with open(output_path, 'rb') as f:
+                        st.download_button(
+                            label="📥 Download International News Report",
+                            data=f.read(),
+                            file_name=f"國際新聞報告_{datetime.now().strftime('%Y%m%d')}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
+
+                    st.subheader("📊 International News Summary")
+                    st.write(f"**Total articles scraped**: {len(scraped_articles)}")
+                    
+                    # Show media breakdown
+                    media_count = {}
+                    for article in scraped_articles:
+                        media = article.get('media', 'Unknown')
+                        media_count[media] = media_count.get(media, 0) + 1
+                    
+                    for media, count in sorted(media_count.items()):
+                        st.write(f"**{media}**: {count} articles")
+
+                # ALWAYS proceed to logout regardless of success or failure
+                progress_bar.progress(90, text="Report completed. Logging out...")
                 status_text.text("Logging out...")
 
-                logout(driver=driver, wait=wait, st_module=st)
-                robust_logout_request(driver, st_module=st)
+                try:
+                    logout(driver=driver, wait=wait, st_module=st)
+                    robust_logout_request(driver, st_module=st)
+                    st.success("✅ Successfully logged out.")
+                except Exception as logout_error:
+                    st.error(f"Logout failed: {logout_error}")
+                    # Still try robust logout as fallback
+                    try:
+                        robust_logout_request(driver, st_module=st)
+                        st.info("✅ Robust logout completed.")
+                    except Exception as robust_error:
+                        st.error(f"Robust logout also failed: {robust_error}")
 
-                # Provide download
-                with open(output_path, 'rb') as f:
-                    st.download_button(
-                        label="📥 Download International News Report",
-                        data=f.read(),
-                        file_name=f"國際新聞報告_{datetime.now().strftime('%Y%m%d')}.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
-
-                progress_bar.progress(100, text="✅ International news scraping complete!")
-                status_text.success("✅ International news scraping completed successfully!")
-
-                st.subheader("📊 International News Summary")
-                st.write(f"**Total articles scraped**: {len(scraped_articles)}")
-                
-                # Show media breakdown
-                media_count = {}
-                for article in scraped_articles:
-                    media = article.get('media', 'Unknown')
-                    media_count[media] = media_count.get(media, 0) + 1
-                
-                for media, count in sorted(media_count.items()):
-                    st.write(f"**{media}**: {count} articles")
-
-                st.success("✅ International news scraping process completed successfully!")
+                progress_bar.progress(100, text="✅ International news process complete!")
+                status_text.success("✅ International news processing completed!")
 
             except Exception as e:
-                st.error(f"❌ A critical error stopped the international news script: {str(e)}")
+                st.error(f"❌ A critical error occurred: {str(e)}")
                 st.code(traceback.format_exc())
 
             finally:
+                # CRITICAL: Always attempt logout in finally block
                 try:
                     if 'driver' in locals() and driver:
+                        st.write("🔄 Ensuring logout in finally block...")
                         if not keep_browser_open_intl:
+                            try:
+                                logout(driver=driver, wait=wait, st_module=st)
+                            except:
+                                pass  # Continue to robust logout even if normal logout fails
+                            
                             robust_logout_request(driver, st_module=st)
+                            st.write("✅ Final logout completed.")
                         else:
-                            st.warning("🤖 As requested, the browser window has been left open for inspection.")
+                            st.warning("🤖 Browser kept open for inspection as requested.")
                 except Exception as cleanup_err:
-                    st.error(f"Error in cleanup: {cleanup_err}")
+                    st.error(f"Error in final cleanup: {cleanup_err}")
 
 if __name__ == "__main__":
     main()
