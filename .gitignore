@@ -8,3 +8,8 @@
 # Temporary files
 captcha.png
 temp_*.docx
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class

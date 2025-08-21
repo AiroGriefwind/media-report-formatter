@@ -1,0 +1,675 @@
+# =============================================================================
+# DOCUMENT PROCESSING FUNCTIONS
+# =============================================================================
+
+import re
+import json
+from datetime import datetime
+from collections import defaultdict
+import time
+
+from docx import Document
+from docx.shared import Pt, Cm
+from docx.enum.text import WD_LINE_SPACING, WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT, WD_TAB_LEADER
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+from opencc import OpenCC
+
+from .config import CORRECTION_MAP, MEDIA_NAME_MAPPINGS, EDITORIAL_MEDIA_ORDER, EDITORIAL_MEDIA_NAMES, TITLE_MODIFICATIONS
+
+
+# =============================================================================
+# DOCUMENT FORMATTING FUNCTIONS
+# =============================================================================
+
+def is_source_citation(text):
+    """Check if text is a source citation"""
+    if not text: 
+        return False
+    if ']' in text and text.index(']') < 30: 
+        return False
+    if re.match(r'^.{1,20}[:：]', text): 
+        return True
+    common_media_prefixes = "|".join(re.escape(k) for k in MEDIA_NAME_MAPPINGS.keys())
+    if re.match(rf'^({common_media_prefixes})\s*[:：]', text): 
+        return True
+    return False
+
+def is_valid_headline(text):
+    """Validates if a line of text could be a headline"""
+    if not text or len(text.strip()) < 5:
+        return False
+    if re.search(r'[，,。]', text):
+        return False
+    if re.search(r'[.?!]$', text.strip()):
+        return False
+    if ']' in text:
+        return False
+    return True
+
+def is_new_metadata_format(text):
+    """
+    Detects if a line is in the new metadata format.
+    Format: "media name + page number + section name | word count | date"
+    """
+    if not text:
+        return False
+    
+    # Check for exactly two '|' characters
+    if text.count('|') != 2:
+        return False
+    
+    # Check that it doesn't end with punctuation
+    if re.search(r'[。，.，]$', text.strip()):
+        return False
+    
+    # Additional validation - should have format like "媒体名 页码 栏目名 |字数 |日期"
+    parts = text.split('|')
+    if len(parts) != 3:
+        return False
+    
+    # The first part should contain media name and page info
+    first_part = parts[0].strip()
+    if not first_part:
+        return False
+    
+    # The second part should contain word count (should have '字')
+    second_part = parts[1].strip()
+    if '字' not in second_part:
+        return False
+    
+    # The third part should look like a date
+    third_part = parts[2].strip()
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', third_part):
+        return False
+    
+    return True
+
+def transform_metadata_line(metadata_text, next_paragraph_text):
+    """
+    Transforms metadata line from new format to semicolon format.
+    From: "香港经济日报 A04 评析天下 |911 字 |2025-07-16"
+    To: "经济 A04：全国政协副主席梁振英出任主席的共享基金会，主力为一带一路国家提供"
+    """
+    if not metadata_text or not next_paragraph_text:
+        return metadata_text
+    
+    # Split by '|' to get the main part
+    parts = metadata_text.split('|')
+    if len(parts) < 1:
+        return metadata_text
+    
+    next_paragraph_text = remove_reporter_phrases(next_paragraph_text)
+    main_part = parts[0].strip()
+    
+    # Detect full media name, page, and placeholder '=='
+    #    Regex: (media) (page)(==)? (optional section)
+    m = re.match(
+        r'^([\u4e00-\u9fa5A-Za-z（）()]+)\s+([A-Z]\d{2})(==)?(?:\s+[^\s]+)?',
+        main_part
+    )
+    if not m:
+        # Fallback to original if it doesn’t match
+        return metadata_text
+    
+    media_name = m.group(1)
+    page_number = m.group(2)
+    has_placeholder  = bool(m.group(3))
+    
+    # Convert long media name to short name using enhanced mapping
+    short_media_name = get_short_media_name(media_name)
+
+    #  Rebuild the “及多份報章” phrase if the placeholder was present
+    suffix = '及多份報章' if has_placeholder else ''
+    
+    # Extract first paragraph
+    body = next_paragraph_text.strip()
+
+    transformed = f"{short_media_name} {page_number}{suffix}：{body}"
+    return transformed
+    
+
+def get_short_media_name(full_media_name):
+    """
+    Convert full media name to short name with flexible matching.
+    """
+    # Direct mapping first
+    if full_media_name in MEDIA_NAME_MAPPINGS:
+        return MEDIA_NAME_MAPPINGS[full_media_name]
+    
+    # Flexible matching for common patterns (handles both simplified and traditional)
+    if '经济日报' in full_media_name or '經濟日報' in full_media_name:
+        return '经济'
+    if '明报' in full_media_name or '明報' in full_media_name:
+        return '明报'
+    if '文汇报' in full_media_name or '文匯報' in full_media_name:
+        return '文汇'
+    if '东方日报' in full_media_name or '東方日報' in full_media_name:
+        return '东方'
+    if '星岛日报' in full_media_name or '星島日報' in full_media_name:
+        return '星岛'
+    if '大公报' in full_media_name or '大公報' in full_media_name:
+        return '大公'
+    if '头条' in full_media_name or '頭條' in full_media_name:
+        return '头条'
+    if '成报' in full_media_name or '成報' in full_media_name:
+        return '成报'
+    if '商报' in full_media_name or '商報' in full_media_name:
+        return '商报'
+    if 'am730' in full_media_name.lower():
+        return 'am730'
+    if '南華早報' in full_media_name or '南华早报' in full_media_name:
+        return 'SCMP'
+    
+    # If no match found, return the original name
+    return full_media_name
+
+def remove_reporter_phrases(text):
+    if not text:
+        return ""
+    #Remove `●香港文匯報記者 or 香港文汇报记者` and anything after it
+    text = re.sub(r'(●香港文匯報記者|●香港文汇报记者).*$', '', text, flags=re.MULTILINE)
+
+    #Remove reporting agency content between first colon and '报道：' or '報道：'
+    match = re.search(r'(^.+?：)', text)
+    if match:
+        prefix = match.group(1)  # everything up to and including the first colon
+        rest = text[match.end():]  # everything after the first colon
+        
+        # Find 报道： or 報道： in the rest
+        rep_match = re.search(r'(报道：|報道：)', rest)
+        if rep_match:
+            # Remove text from start of rest up to and including 报道：/報道：
+            rest = rest[rep_match.end():].lstrip()
+            text = prefix + rest
+
+    # Remove 【...】 containing keywords
+    pattern_brackets = r'【[^】]*?(记者|記者|报道|報道|报讯|報訊)[^】]*?】'
+    text = re.sub(pattern_brackets, '', text)
+    # Remove （...） containing keywords, using a function for precision
+    def paren_replacer(match):
+        if re.search(r'(记者|記者|报道|報道|报讯|報訊)', match.group(1)):
+            return ''
+        return match.group(0)
+    text = re.sub(r'（([^）]*)）', paren_replacer, text)
+    # Remove the fixed phrase
+    text = text.replace('香港文汇报訊', '').replace('香港文匯報訊', '')
+    return text.strip()
+
+def convert_to_traditional_chinese(text):
+    """Convert simplified Chinese to traditional Chinese"""
+    if not text or not text.strip():
+        return text
+    try:
+        cc = OpenCC('s2hk')
+        converted_text = cc.convert(text)
+        return converted_text
+    except Exception as e:
+        print(f"Warning: Chinese conversion failed for text: {text[:50]}... Error: {str(e)}")
+        return text
+    
+def apply_gatekeeper_corrections(text):
+    """
+    Applies a second round of specific corrections based on the CORRECTION_MAP.
+    """
+    if not text:
+        return text
+    for error, correction in CORRECTION_MAP.items():
+        if error in text:
+            text = text.replace(error, correction)
+    return text
+
+def add_end_marker(doc):
+    """Add end marker to document"""
+    blank_para = doc.add_paragraph("")
+    blank_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    end_para = doc.add_paragraph("（完）")
+    end_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    end_para.style = doc.styles['Normal']
+
+# =============================================================================
+# DOCUMENT FORMATTING FUNCTIONS
+# =============================================================================
+
+def setup_document_fonts(doc):
+    """Setup document fonts"""
+    style = doc.styles['Normal']
+    font = style.font
+    font.name = 'Calibri'
+    font.size = Pt(12)
+    style._element.rPr.rFonts.set(qn('w:eastAsia'), '標楷體')
+
+def add_first_page_header(doc, logo_path):
+    """Add header only on the first page"""
+    try:
+        section = doc.sections
+        section.different_first_page_header_footer = True
+
+        header = section.first_page_header
+        # Always ensure there's at least one paragraph
+        if header.paragraphs:
+            header_para = header.paragraphs
+            header_para.clear()
+        else:
+            header_para = header.add_paragraph()
+
+        left_run = header_para.add_run("亞聯每日報章摘要")
+        left_run.font.name = 'Calibri'
+        left_run._element.rPr.rFonts.set(qn('w:eastAsia'), '標楷體')
+        left_run.font.size = Pt(18)
+
+        # Only add logo if path exists and is not None
+        if logo_path and os.path.exists(logo_path):
+            tab_stops = header_para.paragraph_format.tab_stops
+            tab_stops.clear_all()
+            tab_stops.add_tab_stop(Cm(16), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.SPACES)
+            header_para.add_run("\t\t")
+            logo_run = header_para.add_run()
+            logo_run.add_picture(logo_path, width=Cm(5.95), height=Cm(2.04))
+
+        header_para.style = doc.styles['Header']
+
+    except Exception as e:
+        print(f"Warning: Could not add first page header: {e}")
+
+
+def add_first_page_footer(doc):
+    """Add footer only on the first page"""
+    section = doc.sections[0]
+    section.different_first_page_header_footer = True
+    
+    footer = section.first_page_footer
+    footer_para = footer.paragraphs[0]
+    footer_para.clear()
+    
+    footer_lines = [
+        "香港金鐘夏愨道18號海富中心24樓  電話: 2114 4960  傳真: 3544 2933",
+        "電郵: info@asianet-sprg.com.hk", 
+        "網頁: http://www.asianet-sprg.com.hk"
+    ]
+    
+    for i, line in enumerate(footer_lines):
+        run = footer_para.add_run(line)
+        run.font.name = 'Calibri'
+        run._element.rPr.rFonts.set(qn('w:eastAsia'), '標楷體')
+        run.font.size = Pt(12)
+        if i < len(footer_lines) - 1:
+            footer_para.add_run('\n')
+    
+    footer_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+def add_subsequent_pages_header(doc):
+    """Add header to pages 2 onwards"""
+    section = doc.sections[0]
+    header = section.header
+    header_para = header.paragraphs[0]
+    header_para.clear()
+    
+    header_run = header_para.add_run("AsiaNet亞聯政經顧問")
+    header_run.font.name = 'Calibri'
+    header_run._element.rPr.rFonts.set(qn('w:eastAsia'), '標楷體')
+    header_run.font.size = Pt(12)
+    header_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+def add_subsequent_pages_footer(doc):
+    """Add footer to pages 2 onwards with page numbers"""
+    section = doc.sections[0]
+    footer = section.footer
+    footer_para = footer.paragraphs[0]
+    footer_para.clear()
+    
+    footer_run = footer_para.add_run()
+    footer_run.font.name = 'Calibri'
+    footer_run.font.size = Pt(12)
+    
+    fldChar1 = OxmlElement('w:fldChar')
+    fldChar1.set(qn('w:fldCharType'), 'begin')
+    footer_run._element.append(fldChar1)
+    
+    instrText = OxmlElement('w:instrText')
+    instrText.text = 'PAGE'
+    footer_run._element.append(instrText)
+    
+    fldChar2 = OxmlElement('w:fldChar')
+    fldChar2.set(qn('w:fldCharType'), 'end')
+    footer_run._element.append(fldChar2)
+    
+    footer_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+def detect_section_type(text):
+    """Detect the type of section from text"""
+    if not text: 
+        return None
+    sections = {
+        'editorial': r'^報章社評\s*$', 
+        'international': r'^國際新聞[:：]?\s*$', 
+        'china': r'^大中華新聞\s*$', 
+        'local': r'^本地新聞\s*$', 
+        'financial': r'^財經新聞\s*$', 
+        'Hong Kong': r'^香港本地新聞\s*$', 
+        'entertainment': r'^娛樂新聞\s*$', 
+        'sports': r'^體育新聞\s*$', 
+        'property': r'^地產新聞\s*$'
+    }
+    for name, pattern in sections.items():
+        if re.match(pattern, text): 
+            return name
+    return None
+
+def detect_editorial_media_line(text):
+    """Detects editorial media lines"""
+    if not text: 
+        return None
+    
+    match = re.match(r'^([^：]+)：(.*)$', text)
+    if match:
+        potential_name, content = match.group(1).strip(), match.group(2).strip()
+        
+        if potential_name in EDITORIAL_MEDIA_NAMES:
+            return {'full_name': potential_name, 'clean_name': potential_name, 'content': content}
+        
+        if potential_name in MEDIA_NAME_MAPPINGS:
+            clean_name = MEDIA_NAME_MAPPINGS[potential_name]
+            return {'full_name': potential_name, 'clean_name': clean_name, 'content': content}
+    
+    return None
+
+def is_editorial_continuation(text):
+    """Detects if a line is a continuation of editorial content"""
+    if not text: 
+        return False
+    if re.match(r'^\s*\d+\.\s+', text): 
+        return True
+    if re.match(r'^[\t\s]{2,}', text): 
+        return True
+    if len(text.strip()) > 15: 
+        return True
+    return False
+
+def format_content_paragraph(paragraph):
+    """Format content paragraph"""
+    pf = paragraph.paragraph_format
+    pf.line_spacing = 1.0
+    pf.left_indent = Pt(0)
+    pf.first_line_indent = Pt(0)
+    pf.space_before = Pt(0)
+    pf.space_after = Pt(6)
+
+def format_media_first_line_hanging(paragraph, label_length):
+    """Format media first line with hanging indent"""
+    pf = paragraph.paragraph_format
+    indent_amount = Pt(54)
+    pf.line_spacing = 1.0
+    pf.space_before = Pt(0)
+    pf.space_after = Pt(0)
+    pf.keep_with_next = True
+    pf.left_indent = indent_amount
+    pf.first_line_indent = -indent_amount
+    pf.tab_stops.clear_all()
+    pf.tab_stops.add_tab_stop(indent_amount)
+
+def format_section_header(paragraph):
+    """Format section header"""
+    pf = paragraph.paragraph_format
+    pf.line_spacing = 1.0
+    pf.left_indent = Pt(0)
+    pf.space_before = Pt(12)
+    pf.space_after = Pt(6)
+    pf.keep_with_next = True
+
+def format_article_title(paragraph, needs_spacing):
+    """Format article title"""
+    pf = paragraph.paragraph_format
+    pf.line_spacing = 1.0
+    pf.left_indent = Pt(0)
+    pf.first_line_indent = Pt(0)
+    pf.space_before = Pt(12) if needs_spacing else Pt(0)
+    pf.space_after = Pt(0)
+    pf.keep_with_next = True
+
+def add_section_header_to_doc(doc, text):
+    """Add section header to document"""
+    p = doc.add_paragraph()
+    p.add_run(text).bold = True
+    format_section_header(p)
+
+def add_article_to_document(doc, article_data, needs_spacing):
+    """Add article to document"""
+    p = doc.add_paragraph(article_data['text'], style='List Number')
+    p.runs[0].bold = True
+    #p.style = doc.styles['Normal']
+    format_article_title(p, needs_spacing)
+
+def add_media_group_to_document(new_doc, media_group):
+    """Add media group to document"""
+    media_label = f"{media_group['clean_name']}："
+    label_length = len(media_label)
+    full_width_space = '\u3000'
+
+    para = new_doc.add_paragraph()
+    para.add_run(f"{media_label}{media_group['first_item']}")
+    format_media_first_line_hanging(para, label_length)
+
+    for item in media_group['additional_items']:
+        item_para = new_doc.add_paragraph()
+        item_para.add_run(full_width_space * label_length + item['text'])
+        format_media_first_line_hanging(item_para, label_length)
+
+def add_date_line_if_needed(doc, date_str):
+    """
+    Add date line if needed, safely handling empty documents.
+    This corrected version avoids the index error.
+    """
+    # First, check if the document already has a date line.
+    if doc.paragraphs:
+        first_text_paragraph = next((p for p in doc.paragraphs if p.text.strip()), None)
+        if first_text_paragraph and re.match(r'^\d{8}$', first_text_paragraph.text.strip()):
+            return  # Date already exists, so we do nothing.
+
+    # If the document is empty or the date is missing, we add it.
+    # This method safely adds the paragraph and moves it to the beginning.
+    p = doc.add_paragraph(date_str)
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p_element = p._p
+    doc._body._element.remove(p_element)
+    doc._body._element.insert(0, p_element)
+
+
+def add_end_marker(doc):
+    """Add end marker to document"""
+    blank_para = doc.add_paragraph("")
+    blank_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    end_para = doc.add_paragraph("（完）")
+    end_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    end_para.style = doc.styles['Normal']
+
+# =============================================================================
+# MAIN DOCUMENT PROCESSING FUNCTIONS
+# =============================================================================
+
+def extract_document_structure(doc_path, json_output_path=None):
+    """
+    Extracts structure using state-based logic with Chinese conversion.
+    """
+    global TITLE_MODIFICATIONS
+    TITLE_MODIFICATIONS = []
+
+    if json_output_path is None:
+        json_output_path = doc_path.replace('.docx', '_structure.json')
+    
+    doc = Document(doc_path)
+    structure = {'total_paragraphs': len(doc.paragraphs), 'editorial_media_groups': [], 'sections': {}, 'other_content': []}
+    
+    current_section = None
+    in_editorial = False
+    section_counters = {}
+    
+    is_expecting_title = False
+    title_cooldown_counter = 0
+
+    paragraphs = doc.paragraphs
+    num_paragraphs = len(paragraphs)
+    
+    # add paragraph while skipping first paragraph after metadata
+    skip_next = False
+    for i, paragraph in enumerate(paragraphs):
+        if skip_next:
+            skip_next = False
+            continue  # Skip the paragraph after the metadata line
+
+        
+        original_text = paragraph.text.strip()
+        text = convert_to_traditional_chinese(original_text)
+        text = apply_gatekeeper_corrections(text)
+
+        text = remove_reporter_phrases(text)
+
+        if is_new_metadata_format(original_text):
+            next_content = ""
+            if i + 1 < num_paragraphs:
+                next_paragraph_text = paragraphs[i + 1].text.strip()
+                next_content = convert_to_traditional_chinese(next_paragraph_text)
+                next_content = apply_gatekeeper_corrections(next_content)
+            # Transform the metadata line with the *lead* of the next paragraph
+            text = transform_metadata_line(text, next_content)
+            skip_next = True   # Set flag to skip the next paragraph
+
+        section_type = detect_section_type(text)
+        if section_type:
+            current_section = section_type
+            in_editorial = (section_type == 'editorial')
+            is_expecting_title = not in_editorial
+            title_cooldown_counter = 0
+            if section_type not in structure['sections']:
+                structure['sections'][section_type] = []
+            structure['other_content'].append({'index': i, 'text': text, 'type': 'section_header', 'section': section_type})
+            continue
+        
+        if not text: continue
+        
+        if in_editorial:
+            media_info = detect_editorial_media_line(text)
+            if media_info:
+                # Apply conversion to media content as well
+                converted_content = convert_to_traditional_chinese(media_info['content'])
+                # Apply gatekeeper corrections to media content
+                converted_content = apply_gatekeeper_corrections(converted_content)
+                # Remove reporter phrases from media content
+                converted_content = remove_reporter_phrases(converted_content)
+
+                media_info['content'] = converted_content
+                current_media_group = {'clean_name': media_info['clean_name'], 'original_name': media_info['full_name'], 'start_index': i, 'first_item': converted_content, 'additional_items': []}
+                structure['editorial_media_groups'].append(current_media_group)
+            elif 'current_media_group' in locals() and current_media_group and is_editorial_continuation(text):
+                current_media_group['additional_items'].append({'index': i, 'text': text})
+        else:
+            # Rest of the existing logic remains the same, but with converted text
+            if title_cooldown_counter > 0:
+                structure['other_content'].append({'index': i, 'text': text, 'type': 'content', 'section': current_section})
+                title_cooldown_counter -= 1
+                continue
+
+            is_title = False
+            prospective_title_text = text
+
+            if is_expecting_title:
+                is_title = True
+                is_expecting_title = False
+            else:
+                if i + 1 < num_paragraphs:
+                    next_paragraph_text_original = paragraphs[i+1].text.strip()
+                    next_paragraph_text = convert_to_traditional_chinese(next_paragraph_text_original)
+                    next_paragraph_text = apply_gatekeeper_corrections(next_paragraph_text)
+                    
+                    # ENHANCED: Check for both original format and new metadata format
+                    if (is_source_citation(next_paragraph_text) or is_new_metadata_format(next_paragraph_text_original)) and is_valid_headline(text):
+                        is_title = True
+
+            if current_section and is_title:
+                match_existing_index = re.match(r'^(\d+)\.\s*(.*)', text)
+                if match_existing_index:
+                    original_title_text, stripped_title_text = text, match_existing_index.group(2).strip()
+                    TITLE_MODIFICATIONS.append({'original_text': original_title_text, 'modified_text': stripped_title_text, 'section': current_section, 'original_paragraph_index': i})
+                    prospective_title_text = stripped_title_text
+                
+                section_counters[current_section] = section_counters.get(current_section, 0) + 1
+                article_index = section_counters[current_section]
+                
+                structure['sections'][current_section].append({'index': i, 'text': prospective_title_text, 'type': 'article_title', 'section_index': article_index})
+                
+                title_cooldown_counter = 1
+            else:
+                structure['other_content'].append({'index': i, 'text': text, 'type': 'content', 'section': current_section})
+
+    structure['title_format_modifications'] = TITLE_MODIFICATIONS
+
+    with open(json_output_path, 'w', encoding='utf-8') as f:
+        json.dump(structure, f, ensure_ascii=False, indent=2, default=str)
+    
+    return structure
+
+def rebuild_document_from_structure(doc_path, structure_json_path=None, output_path=None):
+    """Rebuild document from extracted structure"""
+    if structure_json_path is None:
+        structure_json_path = doc_path.replace('.docx', '_structure.json')
+    if output_path is None:
+        output_path = doc_path.replace('.docx', '_final_formatted.docx')
+        
+    with open(structure_json_path, 'r', encoding='utf-8') as f:
+        structure = json.load(f)
+        
+    new_doc = Document()
+    setup_document_fonts(new_doc)
+
+    today_str = datetime.now().strftime("%Y%m%d")
+    add_date_line_if_needed(new_doc, today_str)
+
+    editorial_section_header = None
+    for content in structure['other_content']:
+        if content['type'] == 'section_header' and content['section'] == 'editorial':
+            editorial_section_header = content['text']
+            break
+    if editorial_section_header:
+        add_section_header_to_doc(new_doc, editorial_section_header)
+
+    editorial_groups = {g['clean_name']: g for g in structure['editorial_media_groups']}
+    for name in EDITORIAL_MEDIA_ORDER:
+        if name in editorial_groups:
+            editorial_groups[name]['first_item'] = remove_reporter_phrases(editorial_groups[name]['first_item'])
+            for item in editorial_groups[name]['additional_items']:
+                item['text'] = remove_reporter_phrases(item['text'])
+            add_media_group_to_document(new_doc, editorial_groups[name])
+
+
+    all_content = []
+    for content in structure['other_content']:
+        if content['type'] == 'section_header' and content['section'] == 'editorial':
+            continue
+        all_content.append(('other', content))
+    for section_name, articles in structure['sections'].items():
+        for article in articles:
+            all_content.append(('article', article))
+    all_content.sort(key=lambda x: x[1].get('index', x[1].get('start_index', 0)))
+    
+    previous_was_content = False
+    last_article_idx = -1
+    for idx, (content_type, content_data) in enumerate(all_content):
+        if content_type == 'other':
+            if content_data['type'] == 'section_header':
+                add_section_header_to_doc(new_doc, content_data['text'])
+            else:
+                clean_text = remove_reporter_phrases(content_data['text'])
+                p = new_doc.add_paragraph(clean_text)
+                format_content_paragraph(p)
+            previous_was_content = True
+        elif content_type == 'article':
+            content_data['text'] = remove_reporter_phrases(content_data['text'])
+            add_article_to_document(new_doc, content_data, previous_was_content)
+            previous_was_content = True
+            last_article_idx = idx
+
+    if last_article_idx != -1:
+        add_end_marker(new_doc)
+
+    new_doc.save(output_path)
+    return output_path
