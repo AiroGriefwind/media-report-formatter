@@ -1,7 +1,7 @@
 # =============================================================================
 # DOCUMENT PROCESSING FUNCTIONS
 # =============================================================================
-
+import os
 import re
 import json
 from datetime import datetime
@@ -242,23 +242,24 @@ def setup_document_fonts(doc):
 def add_first_page_header(doc, logo_path):
     """Add header only on the first page"""
     try:
-        section = doc.sections
+        section = doc.sections[0]
         section.different_first_page_header_footer = True
-
         header = section.first_page_header
+        
         # Always ensure there's at least one paragraph
         if header.paragraphs:
-            header_para = header.paragraphs
+            header_para = header.paragraphs[0]
             header_para.clear()
         else:
             header_para = header.add_paragraph()
 
+        # Add the text run (always)
         left_run = header_para.add_run("亞聯每日報章摘要")
         left_run.font.name = 'Calibri'
         left_run._element.rPr.rFonts.set(qn('w:eastAsia'), '標楷體')
         left_run.font.size = Pt(18)
 
-        # Only add logo if path exists and is not None
+        # Add tab stops and logo (only if logo exists)
         if logo_path and os.path.exists(logo_path):
             tab_stops = header_para.paragraph_format.tab_stops
             tab_stops.clear_all()
@@ -268,9 +269,10 @@ def add_first_page_header(doc, logo_path):
             logo_run.add_picture(logo_path, width=Cm(5.95), height=Cm(2.04))
 
         header_para.style = doc.styles['Header']
-
+        
     except Exception as e:
         print(f"Warning: Could not add first page header: {e}")
+
 
 
 def add_first_page_footer(doc):
