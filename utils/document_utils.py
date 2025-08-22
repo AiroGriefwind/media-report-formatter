@@ -184,11 +184,11 @@ def remove_reporter_phrases(text):
             text = prefix + rest
 
     # Remove 【...】 containing keywords
-    pattern_brackets = r'【[^】]*?(记者|記者|报道|報道|报讯|報訊|專訊)[^】]*?】'
+    pattern_brackets = r'【[^】]*?(记者|記者|报道|報道|报讯|報訊|專訊|专讯)[^】]*?】'
     text = re.sub(pattern_brackets, '', text)
     # Remove （...） containing keywords, using a function for precision
     def paren_replacer(match):
-        if re.search(r'(记者|記者|报道|報道|报讯|報訊|專訊)', match.group(1)):
+        if re.search(r'(记者|記者|报道|報道|报讯|報訊|專訊|专讯)', match.group(1)):
             return ''
         return match.group(0)
     text = re.sub(r'（([^）]*)）', paren_replacer, text)
