@@ -1,6 +1,7 @@
 # =============================================================================
 # DOCUMENT PROCESSING FUNCTIONS
 # =============================================================================
+import streamlit as st
 import os
 import re
 import json
@@ -86,83 +87,58 @@ def is_new_metadata_format(text):
     return True
 
 def transform_metadata_line(metadata_text, next_paragraph_text):
-    """
-    Transforms metadata line from new format to semicolon format.
-    From: "香港经济日报 A04 评析天下 |911 字 |2025-07-16"
-    To: "经济 A04：全国政协副主席梁振英出任主席的共享基金会，主力为一带一路国家提供"
-    """
     if not metadata_text or not next_paragraph_text:
         return metadata_text
-    
-    # Split by '|' to get the main part
+    # Split parts
     parts = metadata_text.split('|')
     if len(parts) < 1:
         return metadata_text
-    
     next_paragraph_text = remove_reporter_phrases(next_paragraph_text)
     main_part = parts[0].strip()
-    
-    # Detect full media name, page, and placeholder '=='
-    #    Regex: (media) (page)(==)? (optional section)
     m = re.match(
-        r'^([\u4e00-\u9fa5A-Za-z（）()]+)\s+([A-Z]\d{2})(==)?(?:\s+[^\s]+)?',
+        r'^([\u4e00-\u9fa5A-Za-z（）()]+)\s+([A-Z]?\d+)(==)?(?:\s+[^\s]+)?',
         main_part
     )
-    if not m:
-        # Fallback to original if it doesn’t match
-        return metadata_text
-    
-    media_name = m.group(1)
-    page_number = m.group(2)
-    has_placeholder  = bool(m.group(3))
-    
-    # Convert long media name to short name using enhanced mapping
-    short_media_name = get_short_media_name(media_name)
-
-    #  Rebuild the “及多份報章” phrase if the placeholder was present
-    suffix = '及多份報章' if has_placeholder else ''
-    
-    # Extract first paragraph
-    body = next_paragraph_text.strip()
-
-    transformed = f"{short_media_name} {page_number}{suffix}：{body}"
-    return transformed
+    if m:
+        media_name = m.group(1)
+        page_number = m.group(2)
+        has_placeholder = bool(m.group(3))
+        # Try to get short name
+        short_media_name = get_short_media_name(media_name)
+        suffix = '及多份報章' if has_placeholder else ''
+        body = next_paragraph_text.strip()
+        if short_media_name:
+            transformed = f"{short_media_name} {page_number}{suffix}：{body}"
+            return transformed
+        else:
+            # Fallback: pick first 2 words (by whitespace)
+            words = media_name.split()
+            fallback_name = "".join(words[:2]) if len(words) >= 2 else media_name
+            # Grab the rest (everything from first space onward; keep original main_part tokens)
+            after_media = main_part[len(media_name):].strip()
+            fallback_metadata = f"{fallback_name} {after_media}".strip()
+            transformed = f"{fallback_metadata}：{body}"
+            # Log for debug
+            st.write(f"[Fallback triggered] Unrecognized media '{media_name}' => '{fallback_name}'. Used: {transformed}")
+            return transformed
+    # If it doesn't match the normal format, just return as original
+    return metadata_text
     
 
 def get_short_media_name(full_media_name):
-    """
-    Convert full media name to short name with flexible matching.
-    """
-    # Direct mapping first
+    # Try mapping first
     if full_media_name in MEDIA_NAME_MAPPINGS:
         return MEDIA_NAME_MAPPINGS[full_media_name]
-    
-    # Flexible matching for common patterns (handles both simplified and traditional)
-    if '经济日报' in full_media_name or '經濟日報' in full_media_name:
-        return '经济'
-    if '明报' in full_media_name or '明報' in full_media_name:
-        return '明报'
-    if '文汇报' in full_media_name or '文匯報' in full_media_name:
-        return '文汇'
-    if '东方日报' in full_media_name or '東方日報' in full_media_name:
-        return '东方'
-    if '星岛日报' in full_media_name or '星島日報' in full_media_name:
-        return '星岛'
-    if '大公报' in full_media_name or '大公報' in full_media_name:
-        return '大公'
-    if '头条' in full_media_name or '頭條' in full_media_name:
-        return '头条'
-    if '成报' in full_media_name or '成報' in full_media_name:
-        return '成报'
-    if '商报' in full_media_name or '商報' in full_media_name:
-        return '商报'
-    if 'am730' in full_media_name.lower():
-        return 'am730'
-    if '南華早報' in full_media_name or '南华早报' in full_media_name:
-        return 'SCMP'
-    
-    # If no match found, return the original name
-    return full_media_name
+    # Try common patterns
+    for pattern, short in [
+        ('經濟日報', '經濟'), ('明報', '明報'), ('文匯報', '文匯'),
+        ('東方日報', '東方'), ('星島日報', '星島'), ('大公報', '大公'), ('頭條日報', '頭條'),
+    ]:
+        if pattern in full_media_name:
+            return short
+    # Fallback: return None so transform_metadata_line handles it
+    return None
+
 
 def is_subtitle_candidate(text, prev_text, next_text):
     """
