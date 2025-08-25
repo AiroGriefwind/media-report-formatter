@@ -164,6 +164,44 @@ def get_short_media_name(full_media_name):
     # If no match found, return the original name
     return full_media_name
 
+def is_subtitle_candidate(text, prev_text, next_text):
+    """
+    Detect if a line is a subtitle that should be removed.
+    Criteria:
+    1. Has blank line before and after
+    2. Never ends with period (。 or .)
+    3. Never exceeds 20 Chinese characters
+    4. Not empty
+    5. Not a section header
+    """
+    if not text or not text.strip():
+        return False
+    
+    text = text.strip()
+    
+    # Hardcode ignore for section headers
+    if text in ["國際新聞", "大中華新聞", "本地新聞"]:
+        return False
+    
+    # Check if previous and next texts are blank/empty
+    prev_is_blank = not prev_text or not prev_text.strip()
+    next_is_blank = not next_text or not next_text.strip()
+    
+    if not (prev_is_blank and next_is_blank):
+        return False
+    
+    # Check if it ends with a period
+    if text.endswith('。') or text.endswith('.'):
+        return False
+    
+    # Check character count (20 or less Chinese characters)
+    if len(text) > 20:
+        return False
+    
+    return True
+
+
+
 def remove_reporter_phrases(text):
     if not text:
         return ""
@@ -226,10 +264,6 @@ def add_end_marker(doc):
     end_para = doc.add_paragraph("（完）")
     end_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
     end_para.style = doc.styles['Normal']
-
-# =============================================================================
-# DOCUMENT FORMATTING FUNCTIONS
-# =============================================================================
 
 def setup_document_fonts(doc):
     """Setup document fonts"""
@@ -526,6 +560,27 @@ def extract_document_structure(doc_path, json_output_path=None):
 
         text = remove_reporter_phrases(text)
 
+         # Check for subtitle removal BEFORE other processing
+        if i > 0 and i < num_paragraphs - 1:  # Not first or last paragraph
+            prev_text = paragraphs[i-1].text.strip() if i > 0 else ""
+            next_text = paragraphs[i+1].text.strip() if i < num_paragraphs - 1 else ""
+            
+            # Convert previous and next text for proper comparison
+            prev_text = convert_to_traditional_chinese(prev_text)
+            next_text = convert_to_traditional_chinese(next_text)
+            
+            import streamlit as st
+            if is_subtitle_candidate(text, prev_text, next_text):
+                # This is a subtitle, skip it
+                st.write("subtitle found and removed:", text)
+                structure['other_content'].append({
+                    'index': i, 
+                    'text': text, 
+                    'type': 'subtitle_removed', 
+                    'section': current_section
+                })
+                continue  # Skip this subtitle
+
         if is_new_metadata_format(original_text):
             next_content = ""
             if i + 1 < num_paragraphs:
@@ -646,6 +701,8 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
     all_content = []
     for content in structure['other_content']:
         if content['type'] == 'section_header' and content['section'] == 'editorial':
+            continue
+        if content['type'] == 'subtitle_removed':
             continue
         all_content.append(('other', content))
     for section_name, articles in structure['sections'].items():
