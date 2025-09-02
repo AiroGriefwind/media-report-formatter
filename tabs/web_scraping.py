@@ -45,7 +45,7 @@ def render_web_scraping_tab():
     
     authors_input = st.text_area(
         "Authors to Search (one per line)",
-        value="李先知\n余錦賢\n傅流螢\n黄锦辉",
+        value="李先知\n余錦賢\n傅流螢",
         help="Enter one author name per line. The script will search for the latest article from each."
     )
     
