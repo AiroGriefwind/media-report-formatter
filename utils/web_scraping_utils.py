@@ -60,6 +60,14 @@ def perform_author_search(**kwargs):
     search_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button#toggle-query-execute.btn.btn-primary')))
     search_button.click()
 
+def wait_for_first_headline(driver, timeout=8):
+    """Wait until a headline link is present and clickable."""
+    WebDriverWait(driver, timeout).until(
+        EC.element_to_be_clickable(
+            (By.CSS_SELECTOR, "div.list-group .list-group-item h4 a")
+        )
+    )
+
 @retry_step
 def click_first_result(**kwargs):
     driver = kwargs.get('driver')
@@ -67,13 +75,17 @@ def click_first_result(**kwargs):
     original_window = kwargs.get('original_window')
     st = kwargs.get('st_module')
 
-    # Locate and click the first article link
-    first_link = wait.until(
-        EC.element_to_be_clickable(
-            (By.CSS_SELECTOR, "div.list-group .list-group-item h4 a")
+    # Make sure the headline is still attached each time we click
+    def safe_click():
+        headline = wait.until(
+            EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, "div.list-group .list-group-item h4 a")
+            )
         )
-    )
-    first_link.click()
+        driver.execute_script("arguments[0].scrollIntoView(true);", headline)
+        headline.click()
+
+    safe_click()
 
     # Wait up to 3 s for a new tab
     try:

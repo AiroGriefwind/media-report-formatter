@@ -6,6 +6,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from datetime import datetime
 from selenium.webdriver.common.by import By
 
+# Fix rectangle characters in Streamlit： Ensure UTF-8 encoding for subprocesses
+import os
+os.environ["PYTHONIOENCODING"] = "utf-8"
+
 # Import Wisers platform functions
 from utils.wisers_utils import (
     setup_webdriver,
@@ -21,6 +25,7 @@ from utils.wisers_utils import (
 # Import specific scraping functions
 from utils.web_scraping_utils import (
     perform_author_search,
+    wait_for_first_headline,
     click_first_result,
     scrape_author_article_content,
     run_newspaper_editorial_task,
@@ -142,8 +147,8 @@ def _handle_scraping_process(group_name, username, password, api_key, authors_in
 
             perform_author_search(driver=driver, wait=wait, author=author, st_module=st)
             
-            # --- NEW: wait for search results container to stabilize ---
-            time.sleep(10)  # allow the list-group to fully render
+            # Wait until at least one headline link is clickable
+            wait_for_first_headline(driver)
             
             # NEW: Check explicitly for 'no article' message in the search results page
             no_article_elements = driver.find_elements(By.XPATH, '//div[@id="article-tab-1-view-1"]//h5[contains(text(),"没有文章，请修改关键词后重新进行搜索")]')
