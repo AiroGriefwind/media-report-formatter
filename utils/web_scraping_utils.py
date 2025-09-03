@@ -66,15 +66,44 @@ def click_first_result(**kwargs):
     wait = kwargs.get('wait')
     original_window = kwargs.get('original_window')
     st = kwargs.get('st_module')
-     
 
-    first_article_link = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.list-group .list-group-item h4 a')))
-    first_article_link.click()
-    wait.until(EC.number_of_windows_to_be(2))
-    for window_handle in driver.window_handles:
-        if window_handle != original_window:
-            driver.switch_to.window(window_handle)
-            break
+    # Locate and click the first article link
+    first_link = wait.until(
+        EC.element_to_be_clickable(
+            (By.CSS_SELECTOR, "div.list-group .list-group-item h4 a")
+        )
+    )
+    first_link.click()
+
+    # Wait up to 3 s for a new tab
+    try:
+        WebDriverWait(driver, 3).until(EC.number_of_windows_to_be(2))
+        for handle in driver.window_handles:
+            if handle != original_window:
+                driver.switch_to.window(handle)
+                break
+        if st:
+            st.write("[click_first_result] Opened in new tab.")
+        return
+    except TimeoutException:
+        if st:
+            st.warning("[click_first_result] New tab not detected within 3s, retrying click...")
+        # Retry click once
+        first_link = wait.until(
+            EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, "div.list-group .list-group-item h4 a")
+            )
+        )
+        first_link.click()
+        # Then wait again for the new tab
+        WebDriverWait(driver, 3).until(EC.number_of_windows_to_be(2))
+        for handle in driver.window_handles:
+            if handle != original_window:
+                driver.switch_to.window(handle)
+                break
+        if st:
+            st.write("[click_first_result] Opened in new tab after retry.")
+
 
 
 @retry_step
