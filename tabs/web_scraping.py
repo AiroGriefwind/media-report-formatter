@@ -142,15 +142,15 @@ def _handle_scraping_process(group_name, username, password, api_key, authors_in
 
             perform_author_search(driver=driver, wait=wait, author=author, st_module=st)
             
-        # NEW: Check explicitly for 'no article' message in the search results page
-            no_article_elements = driver.find_elements(By.XPATH, '//div[@id="article-tab-1-view-1"]//h5[contains(text(),"没有文章，请修改关键词后重新进行搜索")]')
+        # # NEW: Check explicitly for 'no article' message in the search results page
+        #     no_article_elements = driver.find_elements(By.XPATH, '//div[@id="article-tab-1-view-1"]//h5[contains(text(),"没有文章，请修改关键词后重新进行搜索")]')
             
-            if no_article_elements and len(no_article_elements) > 0:
-                # Found no article message, skip this author with no retries, mark as not found
-                st.info(f"No articles found for {author}, skipping.")
-                author_articles_data[author] = {'title': '無法找到文章', 'content': ''}
-                go_back_to_search_form(driver=driver, wait=wait, st_module=st)
-                continue
+        #     if no_article_elements and len(no_article_elements) > 0:
+        #         # Found no article message, skip this author with no retries, mark as not found
+        #         st.info(f"No articles found for {author}, skipping.")
+        #         author_articles_data[author] = {'title': '無法找到文章', 'content': ''}
+        #         go_back_to_search_form(driver=driver, wait=wait, st_module=st)
+        #         continue
             
             if wait_for_search_results(driver=driver, wait=wait, st_module=st):
                 click_first_result(driver=driver, wait=wait, original_window=original_window, st_module=st)
