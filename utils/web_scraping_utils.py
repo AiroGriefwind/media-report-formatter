@@ -60,13 +60,38 @@ def perform_author_search(**kwargs):
     search_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button#toggle-query-execute.btn.btn-primary')))
     search_button.click()
 
-def wait_for_first_headline(driver, timeout=8):
-    """Wait until a headline link is present and clickable."""
-    WebDriverWait(driver, timeout).until(
-        EC.element_to_be_clickable(
+@retry_step
+def ensure_search_results_ready(**kwargs):
+    """
+    Wait until search results appear: either at least one headline link,
+    or the 'no articles' message. Retries up to 3 times on a TimeoutException.
+    """
+    driver = kwargs.get('driver')
+    wait = kwargs.get('wait')
+    st = kwargs.get('st_module')
+
+    try:
+        # Condition A: at least one article headline is clickable
+        headline_present = EC.element_to_be_clickable(
             (By.CSS_SELECTOR, "div.list-group .list-group-item h4 a")
         )
-    )
+        # Condition B: the "no articles" prompt appears
+        no_articles_present = EC.presence_of_element_located(
+            (By.XPATH, "//h5[contains(text(),'没有文章，请修改关键词后重新进行搜索')]")
+        )
+        # Wait for either condition, up to 8s
+        WebDriverWait(driver, 8).until(EC.any_of(headline_present, no_articles_present))
+        st.write("[ensure_search_results_ready] Search results ready.")
+    except TimeoutException as e:
+        # Capture screenshot for debugging
+        if st and driver:
+            img = driver.get_screenshot_as_png()
+            st.image(img, caption="Search results timeout screenshot")
+            st.download_button("Download timeout screenshot", data=img,
+                               file_name="search_timeout.png", mime="image/png")
+        # Bubble up to trigger retry_step
+        raise
+
 
 @retry_step
 def click_first_result(**kwargs):

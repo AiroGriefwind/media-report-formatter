@@ -25,7 +25,7 @@ from utils.wisers_utils import (
 # Import specific scraping functions
 from utils.web_scraping_utils import (
     perform_author_search,
-    wait_for_first_headline,
+    ensure_search_results_ready,
     click_first_result,
     scrape_author_article_content,
     run_newspaper_editorial_task,
@@ -147,8 +147,12 @@ def _handle_scraping_process(group_name, username, password, api_key, authors_in
 
             perform_author_search(driver=driver, wait=wait, author=author, st_module=st)
             
-            # Wait until at least one headline link is clickable
-            wait_for_first_headline(driver)
+            # Ensure the search-results area is fully loaded (results or no-articles prompt)
+            ensure_search_results_ready(
+                driver=driver,
+                wait=wait,
+                st_module=st
+            )
             
             # NEW: Check explicitly for 'no article' message in the search results page
             no_article_elements = driver.find_elements(By.XPATH, '//div[@id="article-tab-1-view-1"]//h5[contains(text(),"没有文章，请修改关键词后重新进行搜索")]')
