@@ -106,6 +106,7 @@ def ensure_search_results_ready(**kwargs):
     the ‘no-article’ banner is visible.  Returns True if results exist,
     False if banner detected.
     """
+    import streamlit as _st; _st.write("🔍 Called NEW ensure_search_results_ready")
     driver = kwargs["driver"]
     st     = kwargs.get("st_module")
 

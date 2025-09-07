@@ -28,7 +28,6 @@ from utils.web_scraping_utils import (
     ensure_search_results_ready,
     _dump_results_panel_text,
     click_first_result,
-    scrape_author_article_content,
     run_newspaper_editorial_task,
     run_scmp_editorial_task,
     create_docx_report
@@ -155,15 +154,7 @@ def _handle_scraping_process(group_name, username, password, api_key, authors_in
             )
 
             _dump_results_panel_text(driver, st)
-            try:
-                panel = driver.find_element(
-                    By.CSS_SELECTOR,
-                    "#article-tab-1-view-1 .list-group"
-                )
-                text = panel.text.strip()
-                st.write(f"▶️ Results panel content:\n\n{text}")
-            except Exception as e:
-                st.warning(f"Could not read results panel text: {e}")
+    
 
             if not has_results:
                 st.info(f"No articles found for {author}, skipping.")
