@@ -42,12 +42,18 @@ NO_ARTICLE_XPATHS = [
 ]
 
 def _no_article_found(driver):
-    """Return True if any known ‘no article’ element is present."""
-    from selenium.webdriver.common.by import By
-    for xp in NO_ARTICLE_XPATHS:
-        if driver.find_elements(By.XPATH, xp):
-            return True
-    return False
+    """
+    Return True as soon as the <h5> ‘没有文章…’ banner appears
+    inside the results pane (id article-tab-1-view-1).
+    """
+    try:
+        banner = driver.find_element(
+            By.XPATH,
+            "//div[@id='article-tab-1-view-1']//h5[contains(normalize-space(),'没有文章')]"
+        )
+        return banner.is_displayed()
+    except NoSuchElementException:
+        return False
 
 
 # =============================================================================
@@ -80,38 +86,28 @@ def perform_author_search(**kwargs):
 @retry_step
 def ensure_search_results_ready(**kwargs):
     """
-    Wait until either:
-    • at least one clickable headline appears, or
-    • the page shows any recognised ‘no-article’ empty state.
+    Wait up to 8 s until *either* a headline is clickable *or*
+    the ‘no-article’ banner is visible.  Returns True if results exist,
+    False if banner detected.
     """
-    driver = kwargs['driver']
-    wait   = kwargs['wait']
-    st     = kwargs.get('st_module')
+    driver = kwargs["driver"]
+    st     = kwargs.get("st_module")
 
-    # Condition: a result headline is clickable
     headline_cond = EC.element_to_be_clickable(
         (By.CSS_SELECTOR, "div.list-group .list-group-item h4 a")
     )
 
-    try:
-        WebDriverWait(driver, 8).until(
-            lambda d: headline_cond(d) or _no_article_found(d)
-        )
-        if st:
-            st.write("[ensure_search_results_ready] Search results ready.")
-    except TimeoutException:
-        # Optional: screenshot for debugging
-        if st:
-            img = driver.get_screenshot_as_png()
-            st.image(img, caption="Search results timeout")
-            st.download_button(
-                "Download timeout screenshot",
-                data=img,
-                file_name="search_timeout.png",
-                mime="image/png",
-                key="timeout_btn"
-            )
-        raise
+    def _ready(d):
+        return headline_cond(d) or _no_article_found(d)
+
+    WebDriverWait(driver, 8).until(_ready)
+
+    if _no_article_found(driver):
+        if st: st.info("ℹ️ No articles banner detected.")
+        return False       # caller will mark author as not-found
+    if st: st.write("✅ Search results found.")
+    return True
+
 
 
 
