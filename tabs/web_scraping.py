@@ -153,6 +153,9 @@ def _handle_scraping_process(group_name, username, password, api_key, authors_in
                 driver=driver, wait=wait, st_module=st
             )
 
+            from utils.web_scraping_utils import _debug_tab_bar
+            _debug_tab_bar(driver, st)
+
             _dump_tab_counters(driver, st)
     
 

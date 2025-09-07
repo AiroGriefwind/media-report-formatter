@@ -71,6 +71,27 @@ def _dump_tab_counters(driver, st):
     except Exception as e:
         st.warning(f"Could not read tab counters: {e}")
 
+def _debug_tab_bar(driver, st):
+    """
+    Write the raw outerHTML of the results tab-bar and each child count.
+    """
+    try:
+        bar = driver.find_element(
+            By.XPATH,
+            "//ul[contains(@class,'nav-tabs') and contains(@class,'navbar-nav-pub')]"
+        )
+        st.write("🔍 Raw tab-bar HTML:")
+        st.code(bar.get_attribute("outerHTML"))
+        items = bar.find_elements(By.TAG_NAME, "li")
+        counts = []
+        for li in items:
+            # get the visible number inside parentheses
+            txt = li.text.replace("\n", " ").strip()
+            counts.append(txt)
+        st.write(f"🔢 Parsed tabs: {counts}")
+    except Exception as e:
+        st.warning(f"Could not debug tab-bar: {e}")
+
 
 # =============================================================================
 # AUTHOR SEARCH SPECIFIC FUNCTIONS
