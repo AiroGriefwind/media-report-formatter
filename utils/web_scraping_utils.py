@@ -32,6 +32,23 @@ from .wisers_utils import (
 
 from .config import WISERS_URL, MEDIA_NAME_MAPPINGS, EDITORIAL_MEDIA_ORDER, EDITORIAL_MEDIA_NAMES
 
+# -----------------------------------------------------------------
+# Helper: detect the “no-article” empty-state in multiple layouts
+# -----------------------------------------------------------------
+NO_ARTICLE_XPATHS = [
+    "//h5[contains(normalize-space(),'没有文章')]",
+    "//div[contains(@class,'empty-result') and contains(.,'没有文章')]",
+    "//p[contains(.,'没有文章')]",
+]
+
+def _no_article_found(driver):
+    """Return True if any known ‘no article’ element is present."""
+    from selenium.webdriver.common.by import By
+    for xp in NO_ARTICLE_XPATHS:
+        if driver.find_elements(By.XPATH, xp):
+            return True
+    return False
+
 
 # =============================================================================
 # AUTHOR SEARCH SPECIFIC FUNCTIONS
@@ -63,34 +80,39 @@ def perform_author_search(**kwargs):
 @retry_step
 def ensure_search_results_ready(**kwargs):
     """
-    Wait until search results appear: either at least one headline link,
-    or the 'no articles' message. Retries up to 3 times on a TimeoutException.
+    Wait until either:
+    • at least one clickable headline appears, or
+    • the page shows any recognised ‘no-article’ empty state.
     """
-    driver = kwargs.get('driver')
-    wait = kwargs.get('wait')
-    st = kwargs.get('st_module')
+    driver = kwargs['driver']
+    wait   = kwargs['wait']
+    st     = kwargs.get('st_module')
+
+    # Condition: a result headline is clickable
+    headline_cond = EC.element_to_be_clickable(
+        (By.CSS_SELECTOR, "div.list-group .list-group-item h4 a")
+    )
 
     try:
-        # Condition A: at least one article headline is clickable
-        headline_present = EC.element_to_be_clickable(
-            (By.CSS_SELECTOR, "div.list-group .list-group-item h4 a")
+        WebDriverWait(driver, 8).until(
+            lambda d: headline_cond(d) or _no_article_found(d)
         )
-        # Condition B: the "no articles" prompt appears
-        no_articles_present = EC.presence_of_element_located(
-            (By.XPATH, "//h5[contains(text(),'没有文章，请修改关键词后重新进行搜索')]")
-        )
-        # Wait for either condition, up to 8s
-        WebDriverWait(driver, 8).until(EC.any_of(headline_present, no_articles_present))
-        st.write("[ensure_search_results_ready] Search results ready.")
-    except TimeoutException as e:
-        # Capture screenshot for debugging
-        if st and driver:
+        if st:
+            st.write("[ensure_search_results_ready] Search results ready.")
+    except TimeoutException:
+        # Optional: screenshot for debugging
+        if st:
             img = driver.get_screenshot_as_png()
-            st.image(img, caption="Search results timeout screenshot")
-            st.download_button("Download timeout screenshot", data=img,
-                               file_name="search_timeout.png", mime="image/png")
-        # Bubble up to trigger retry_step
+            st.image(img, caption="Search results timeout")
+            st.download_button(
+                "Download timeout screenshot",
+                data=img,
+                file_name="search_timeout.png",
+                mime="image/png",
+                key="timeout_btn"
+            )
         raise
+
 
 
 @retry_step
