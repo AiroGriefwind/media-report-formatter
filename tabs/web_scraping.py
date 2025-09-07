@@ -26,6 +26,7 @@ from utils.wisers_utils import (
 from utils.web_scraping_utils import (
     perform_author_search,
     ensure_search_results_ready,
+    _dump_results_panel_text,
     click_first_result,
     scrape_author_article_content,
     run_newspaper_editorial_task,
@@ -152,6 +153,8 @@ def _handle_scraping_process(group_name, username, password, api_key, authors_in
             has_results = ensure_search_results_ready(
                 driver=driver, wait=wait, st_module=st
             )
+
+            _dump_results_panel_text(driver, st)
 
             if not has_results:
                 st.info(f"No articles found for {author}, skipping.")

@@ -56,6 +56,22 @@ def _no_article_found(driver):
         return False
 
 
+def _dump_results_panel_text(driver, st):
+    """
+    Capture and write the raw text of the search-results container
+    so you can see exactly what’s rendered on the page.
+    """
+    try:
+        panel = driver.find_element(
+            By.CSS_SELECTOR,
+            "#article-tab-1-view-1 .list-group"
+        )
+        text = panel.text.strip()
+        st.write(f"▶️ Results panel content:\n\n{text}")
+    except Exception as e:
+        st.warning(f"Could not read results panel text: {e}")
+
+
 # =============================================================================
 # AUTHOR SEARCH SPECIFIC FUNCTIONS
 # =============================================================================
