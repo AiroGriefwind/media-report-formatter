@@ -110,7 +110,7 @@ def _handle_scraping_process(group_name, username, password, api_key, authors_in
 
     try:
         # Setup WebDriver
-        status_text.text("Setting up web driver...")
+        status_text.text("Setting up the web driver...")
         
         driver = setup_webdriver(headless=run_headless, st_module=st)
         if driver is None:
