@@ -35,41 +35,41 @@ from .config import WISERS_URL, MEDIA_NAME_MAPPINGS, EDITORIAL_MEDIA_ORDER, EDIT
 # -----------------------------------------------------------------
 # Helper: detect the “no-article” empty-state in multiple layouts
 # -----------------------------------------------------------------
-NO_ARTICLE_XPATHS = [
-    "//h5[contains(normalize-space(),'没有文章')]",
-    "//div[contains(@class,'empty-result') and contains(.,'没有文章')]",
-    "//p[contains(.,'没有文章')]",
-]
+TAB_BAR_ZEROS_XPATH = (
+    "//ul[contains(@class,'nav-tabs') and contains(@class,'navbar-nav-pub')]"
+    "/li//span[normalize-space(text())='(0)']"
+)
 
-def _no_article_found(driver):
+def _results_are_empty(driver) -> bool:
     """
-    Return True as soon as the <h5> ‘没有文章…’ banner appears
-    inside the results pane (id article-tab-1-view-1).
+    Return True when *all* counters inside the results tab-bar are “(0)”.
+    Logic:
+      1. Locate the UL.tab-bar element.
+      2. Count how many <span>(0)</span> counters it contains.
+      3. Count how many <li role='presentation'> tabs it contains.
+         If they match, every category shows 0 → empty result set.
     """
     try:
-        banner = driver.find_element(
+        tab_items = driver.find_elements(
             By.XPATH,
-            "//div[@id='article-tab-1-view-1']//h5[contains(normalize-space(),'没有文章')]"
+            "//ul[contains(@class,'nav-tabs') and contains(@class,'navbar-nav-pub')]/li"
         )
-        return banner.is_displayed()
-    except NoSuchElementException:
+        zero_spans = driver.find_elements(By.XPATH, TAB_BAR_ZEROS_XPATH)
+        return len(tab_items) > 0 and len(zero_spans) == len(tab_items)
+    except Exception:
+        # Fallback – assume not empty if anything goes wrong
         return False
-
-
-def _dump_results_panel_text(driver, st):
-    """
-    Capture and write the raw text of the search-results container
-    so you can see exactly what’s rendered on the page.
-    """
+    
+def _dump_tab_counters(driver, st):
     try:
-        panel = driver.find_element(
-            By.CSS_SELECTOR,
-            "#article-tab-1-view-1 .list-group"
+        tabs = driver.find_elements(
+            By.XPATH,
+            "//ul[contains(@class,'nav-tabs')]/li"
         )
-        text = panel.text.strip()
-        st.write(f"▶️ Results panel content:\n\n{text}")
+        txt = [t.text.replace("\n", " ").strip() for t in tabs]
+        st.write(f"▶️ Tab counters: {' | '.join(txt)}")
     except Exception as e:
-        st.warning(f"Could not read results panel text: {e}")
+        st.warning(f"Could not read tab counters: {e}")
 
 
 # =============================================================================
@@ -102,11 +102,11 @@ def perform_author_search(**kwargs):
 @retry_step
 def ensure_search_results_ready(**kwargs):
     """
-    Wait up to 8 s until *either* a headline is clickable *or*
-    the ‘no-article’ banner is visible.  Returns True if results exist,
-    False if banner detected.
+    Wait up to 12 s for either:
+      • a clickable headline, **or**
+      • the tab-bar to render with all-zero counters.
+    Returns True if headlines exist, False if counters are all zero.
     """
-    import streamlit as _st; _st.write("🔍 Called NEW ensure_search_results_ready")
     driver = kwargs["driver"]
     st     = kwargs.get("st_module")
 
@@ -115,15 +115,17 @@ def ensure_search_results_ready(**kwargs):
     )
 
     def _ready(d):
-        return headline_cond(d) or _no_article_found(d)
+        return headline_cond(d) or _results_are_empty(d)
 
-    WebDriverWait(driver, 8).until(_ready)
+    WebDriverWait(driver, 12).until(_ready)
 
-    if _no_article_found(driver):
-        if st: st.info("ℹ️ No articles banner detected.")
-        return False       # caller will mark author as not-found
-    if st: st.write("✅ Search results found.")
-    return True
+    empty = _results_are_empty(driver)
+    if st:
+        if empty:
+            st.info("ℹ️ All tab counters are 0 – no articles.")
+        else:
+            st.write("✅ Headlines present – results found.")
+    return not empty     # True when we have results
 
 
 
