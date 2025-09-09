@@ -40,45 +40,62 @@ TAB_BAR_ZEROS_XPATH = (
     "/li//span[normalize-space(text())='(0)']"
 )
 
+def _detect_no_article_banner(driver):
+    """
+    Return True if a 'no article' or 'no data' banner exists.
+    """
+    try:
+        els = driver.find_elements(
+            By.XPATH,
+            "//h5[contains(text(),'没有文章') or contains(text(),'沒有文章')] | //div[contains(@class,'empty-result')] | //div[contains(@class,'no-results')]"
+        )
+        if els:
+            print("Detected empty result banner:", [el.text for el in els])
+        return len(els) > 0
+    except Exception as e:
+        print("Exception while detecting no-article banner:", e)
+        return False
+
+
 def _results_are_empty(driver) -> bool:
     """
     Return True if all main (top-level, non-dropdown) tab counters show "(0)".
-    Also logs each tab for diagnostics.
+    Logs each tab/counter for diagnostics.
     """
     try:
         bar = driver.find_element(
             By.XPATH,
             "//ul[contains(@class,'nav-tabs') and contains(@class,'navbar-nav-pub')]"
         )
-        # Only direct LI children, skip dropdowns (class contains 'dropdown')
+        # Only non-dropdown tabs
         items = bar.find_elements(By.XPATH, "./li[not(contains(@class,'dropdown'))]")
+
         total = 0
         zeros = 0
         debug_lines = []
         for idx, li in enumerate(items):
-            spans = li.find_elements(By.XPATH, "./a/span")
-            txts = [s.text for s in spans]
-            debug_lines.append(f"Tab idx={idx}, text={li.text!r}, counter_spans={txts!r}")
-            # Find the first <span>(n)</span> in LI
+            # Find the first <span>(n)</span> under <a>
+            s_list = li.find_elements(By.XPATH, "./a/span")
+            txts = [s.text for s in s_list]
             found = False
-            for s in spans:
+            for s in s_list:
                 txt = s.text.strip()
+                debug_lines.append(f"Tab idx={idx}, label={li.text!r}, span_text={txt!r}")
                 if txt.startswith("(") and txt.endswith(")"):
                     total += 1
                     if txt == "(0)":
                         zeros += 1
                     found = True
-                    break  # Only count the first found
-            # If there is no <span>(n), we log and ignore
-
-        # Print all diagnostics at once:
+                    break
+            if not found:
+                debug_lines.append(f"Tab idx={idx} had no <a><span> matching (n)!")
         print("\n".join(debug_lines))
         print(f"Tab counter summary: {zeros} of {total} tabs are (0)")
-
         return total > 0 and total == zeros
     except Exception as e:
         print("Error in _results_are_empty:", e)
         return False
+
 
 
     
@@ -168,17 +185,29 @@ def ensure_search_results_ready(**kwargs):
         )
 
         def _ready(d):
-            return headline_cond(d) or _results_are_empty(d)
+            ready_headline = headline_cond(d)
+            ready_empty = _results_are_empty(d)
+            ready_no_article = _detect_no_article_banner(d)
+            print(f"_ready: headline={ready_headline} zeroed_tabs={ready_empty} no_article_banner={ready_no_article}")
+            return ready_headline or ready_empty or ready_no_article
+
 
         WebDriverWait(driver, 12).until(_ready)
 
+        
+
         empty = _results_are_empty(driver)
+        noarticle = _detect_no_article_banner(driver)
+
         if st:
             if empty:
                 st.info("ℹ️ All tab counters are 0 – no articles.")
+            elif noarticle:
+                st.info("ℹ️ No-article banner detected – no articles.")
             else:
                 st.write("✅ Headlines present – results found.")
-        return not empty     # True when we have results
+        return not (empty or noarticle)
+
     except TimeoutException:
         print("TimeoutException! Dumping tab bar state for diagnostics:")
         if st:
@@ -196,7 +225,6 @@ def ensure_search_results_ready(**kwargs):
             print("Could not locate tab bar for dumping HTML:", ex)
             if st:
                 st.error(f"Could not locate tab bar for dumping HTML: {ex}")
-        # Dump also ALL HTML of the right pane (e.g., entire result area)
         try:
             main_panel = driver.find_element(By.CSS_SELECTOR, "body")
             html = main_panel.get_attribute("outerHTML")
@@ -208,6 +236,7 @@ def ensure_search_results_ready(**kwargs):
             if st:
                 st.error(f"Could not get body outerHTML: {ex}")
         raise
+
 
 
 
