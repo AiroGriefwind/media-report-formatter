@@ -142,6 +142,7 @@ def _handle_scraping_process(group_name, username, password, api_key, authors_in
         progress_increment = 70 / total_steps
 
         for i, author in enumerate(authors_list):
+            st.write(f"🔎 Now searching: {author}")
             current_progress = 15 + (i * progress_increment)
             status_text.text(f"({i+1}/{len(authors_list)}) Searching for author: {author}...")
             progress_bar.progress(int(current_progress), text=f"Searching for {author}")
@@ -237,8 +238,13 @@ def _handle_scraping_process(group_name, username, password, api_key, authors_in
 
         # Summary
         st.subheader("📊 Scraped Content Summary")
-        for author, data in author_articles_data.items():
-            st.write(f"**{author}**: {'Article found' if data else 'No article found'}")
+        for author in authors_list:
+            data = author_articles_data.get(author)
+            if data and (data.get("content") or data.get("title")) and data["title"] != "無法找到文章":
+                st.write(f"**{author}**: Article found")
+            else:
+                st.write(f"**{author}**: No article found")
+
         st.write(f"**Editorials**: Found {len(editorial_data)} total editorial articles.")
         st.success("✅ Scraping process completed successfully!")
 
