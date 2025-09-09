@@ -181,16 +181,34 @@ def ensure_search_results_ready(**kwargs):
         return not empty     # True when we have results
     except TimeoutException:
         print("TimeoutException! Dumping tab bar state for diagnostics:")
+        if st:
+            st.warning("TimeoutException! Dumping tab bar state for diagnostics:")
         try:
             bar = driver.find_element(
                 By.XPATH,
                 "//ul[contains(@class,'nav-tabs') and contains(@class,'navbar-nav-pub')]"
             )
-            print("Tab bar HTML:")
-            print(bar.get_attribute("outerHTML"))
+            tab_html = bar.get_attribute("outerHTML")
+            print("Tab bar HTML:\n", tab_html)
+            if st:
+                st.code(tab_html, language='html')
         except Exception as ex:
             print("Could not locate tab bar for dumping HTML:", ex)
+            if st:
+                st.error(f"Could not locate tab bar for dumping HTML: {ex}")
+        # Dump also ALL HTML of the right pane (e.g., entire result area)
+        try:
+            main_panel = driver.find_element(By.CSS_SELECTOR, "body")
+            html = main_panel.get_attribute("outerHTML")
+            print("BODY outerHTML (truncated):\n", html[:4000])
+            if st:
+                st.code("BODY\n" + html[:4000], language='html')
+        except Exception as ex:
+            print("Could not get body outerHTML:", ex)
+            if st:
+                st.error(f"Could not get body outerHTML: {ex}")
         raise
+
 
 
 
