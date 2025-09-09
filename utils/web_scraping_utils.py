@@ -91,7 +91,9 @@ def _results_are_empty(driver) -> bool:
                 debug_lines.append(f"Tab idx={idx} had no <a><span> matching (n)!")
         print("\n".join(debug_lines))
         print(f"Tab counter summary: {zeros} of {total} tabs are (0)")
+        print(f"Returning from _results_are_empty: {total > 0 and total == zeros}")
         return total > 0 and total == zeros
+
     except Exception as e:
         print("Error in _results_are_empty:", e)
         return False
@@ -185,11 +187,27 @@ def ensure_search_results_ready(**kwargs):
         )
 
         def _ready(d):
-            ready_headline = headline_cond(d)
-            ready_empty = _results_are_empty(d)
-            ready_no_article = _detect_no_article_banner(d)
+            ready_headline = False
+            try:
+                ready_headline = headline_cond(d)
+            except Exception as e:
+                print("ready_headline EXCEPTION:", e)
+            try:
+                ready_empty = _results_are_empty(d)
+            except Exception as e:
+                print("ready_empty EXCEPTION:", e)
+                ready_empty = False
+            try:
+                ready_no_article = _detect_no_article_banner(d)
+            except Exception as e:
+                print("ready_no_article EXCEPTION:", e)
+                ready_no_article = False
+            print("===================")
             print(f"_ready: headline={ready_headline} zeroed_tabs={ready_empty} no_article_banner={ready_no_article}")
+            print("===================")
             return ready_headline or ready_empty or ready_no_article
+
+
 
 
         WebDriverWait(driver, 12).until(_ready)
