@@ -165,9 +165,24 @@ def _handle_scraping_process(group_name, username, password, api_key, authors_in
                 go_back_to_search_form(driver=driver, wait=wait, st_module=st)
                 continue
 
-            # 3. We do have results: click first item …
+            # 3. We do have results: click first item and scrape content
             click_first_result(driver=driver, wait=wait,
                             original_window=original_window, st_module=st)
+
+            # 4. Scrape the article content from the new tab
+            scraped_data = scrape_author_article_content(
+                driver=driver, wait=wait, author_name=author, st_module=st
+            )
+            author_articles_data[author] = scraped_data
+
+            # 5. Close article tab and return to search results
+            st.write("Closing article tab and returning to search results...")
+            driver.close()
+            driver.switch_to.window(original_window)
+
+            # 6. Return to search form for next author
+            go_back_to_search_form(driver=driver, wait=wait, st_module=st)
+
 
         # Editorial scraping
         final_author_progress = 15 + (len(authors_list) * progress_increment)

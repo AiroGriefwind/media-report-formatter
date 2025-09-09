@@ -42,34 +42,53 @@ TAB_BAR_ZEROS_XPATH = (
 
 def _results_are_empty(driver) -> bool:
     """
-    Return True when *all* counters inside the results tab-bar are “(0)”.
-    Logic:
-      1. Locate the UL.tab-bar element.
-      2. Count how many <span>(0)</span> counters it contains.
-      3. Count how many <li role='presentation'> tabs it contains.
-         If they match, every category shows 0 → empty result set.
+    Return True when all MAIN counters (top-level tabs) are zero.
+    Ignores dropdown submenus and blank/empty tabs.
     """
     try:
-        tab_items = driver.find_elements(
+        bar = driver.find_element(
             By.XPATH,
-            "//ul[contains(@class,'nav-tabs') and contains(@class,'navbar-nav-pub')]/li"
+            "//ul[contains(@class,'nav-tabs') and contains(@class,'navbar-nav-pub')]"
         )
-        zero_spans = driver.find_elements(By.XPATH, TAB_BAR_ZEROS_XPATH)
-        return len(tab_items) > 0 and len(zero_spans) == len(tab_items)
-    except Exception:
-        # Fallback – assume not empty if anything goes wrong
+        items = bar.find_elements(By.XPATH, "./li[not(contains(@class,'dropdown'))]")
+        zeros = 0
+        total = 0
+        for li in items:
+            # Should only care about li > a > span with number
+            spans = li.find_elements(By.TAG_NAME, "span")
+            # Find the span that matches (n)
+            for s in spans:
+                txt = s.text.strip()
+                if txt.startswith("(") and txt.endswith(")"):
+                    total += 1
+                    if txt == "(0)":
+                        zeros += 1
+                    break  # only count first valid counter per tab
+        return total > 0 and total == zeros
+    except Exception as e:
+        print("Error in _results_are_empty:", e)
         return False
+
     
 def _dump_tab_counters(driver, st):
     try:
-        tabs = driver.find_elements(
+        bar = driver.find_element(
             By.XPATH,
-            "//ul[contains(@class,'nav-tabs')]/li"
+            "//ul[contains(@class,'nav-tabs') and contains(@class,'navbar-nav-pub')]"
         )
-        txt = [t.text.replace("\n", " ").strip() for t in tabs]
-        st.write(f"▶️ Tab counters: {' | '.join(txt)}")
+        items = bar.find_elements(By.XPATH, "./li[not(contains(@class,'dropdown'))]")
+        counts = []
+        for li in items:
+            spans = li.find_elements(By.TAG_NAME, "span")
+            for s in spans:
+                txt = s.text.strip()
+                if txt.startswith("(") and txt.endswith(")"):
+                    label = li.text.split("\n")[0].strip()
+                    counts.append(f"{label} {txt}")
+        st.write("▶️ Top tab counters: " + " | ".join(counts))
     except Exception as e:
         st.warning(f"Could not read tab counters: {e}")
+
 
 def _debug_tab_bar(driver, st):
     """
