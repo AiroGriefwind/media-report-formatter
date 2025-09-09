@@ -42,32 +42,44 @@ TAB_BAR_ZEROS_XPATH = (
 
 def _results_are_empty(driver) -> bool:
     """
-    Return True when all MAIN counters (top-level tabs) are zero.
-    Ignores dropdown submenus and blank/empty tabs.
+    Return True if all main (top-level, non-dropdown) tab counters show "(0)".
+    Also logs each tab for diagnostics.
     """
     try:
         bar = driver.find_element(
             By.XPATH,
             "//ul[contains(@class,'nav-tabs') and contains(@class,'navbar-nav-pub')]"
         )
+        # Only direct LI children, skip dropdowns (class contains 'dropdown')
         items = bar.find_elements(By.XPATH, "./li[not(contains(@class,'dropdown'))]")
-        zeros = 0
         total = 0
-        for li in items:
-            # Should only care about li > a > span with number
-            spans = li.find_elements(By.TAG_NAME, "span")
-            # Find the span that matches (n)
+        zeros = 0
+        debug_lines = []
+        for idx, li in enumerate(items):
+            spans = li.find_elements(By.XPATH, "./a/span")
+            txts = [s.text for s in spans]
+            debug_lines.append(f"Tab idx={idx}, text={li.text!r}, counter_spans={txts!r}")
+            # Find the first <span>(n)</span> in LI
+            found = False
             for s in spans:
                 txt = s.text.strip()
                 if txt.startswith("(") and txt.endswith(")"):
                     total += 1
                     if txt == "(0)":
                         zeros += 1
-                    break  # only count first valid counter per tab
+                    found = True
+                    break  # Only count the first found
+            # If there is no <span>(n), we log and ignore
+
+        # Print all diagnostics at once:
+        print("\n".join(debug_lines))
+        print(f"Tab counter summary: {zeros} of {total} tabs are (0)")
+
         return total > 0 and total == zeros
     except Exception as e:
         print("Error in _results_are_empty:", e)
         return False
+
 
     
 def _dump_tab_counters(driver, st):
@@ -147,25 +159,39 @@ def ensure_search_results_ready(**kwargs):
       • the tab-bar to render with all-zero counters.
     Returns True if headlines exist, False if counters are all zero.
     """
-    driver = kwargs["driver"]
-    st     = kwargs.get("st_module")
+    try:
+        driver = kwargs["driver"]
+        st     = kwargs.get("st_module")
 
-    headline_cond = EC.element_to_be_clickable(
-        (By.CSS_SELECTOR, "div.list-group .list-group-item h4 a")
-    )
+        headline_cond = EC.element_to_be_clickable(
+            (By.CSS_SELECTOR, "div.list-group .list-group-item h4 a")
+        )
 
-    def _ready(d):
-        return headline_cond(d) or _results_are_empty(d)
+        def _ready(d):
+            return headline_cond(d) or _results_are_empty(d)
 
-    WebDriverWait(driver, 12).until(_ready)
+        WebDriverWait(driver, 12).until(_ready)
 
-    empty = _results_are_empty(driver)
-    if st:
-        if empty:
-            st.info("ℹ️ All tab counters are 0 – no articles.")
-        else:
-            st.write("✅ Headlines present – results found.")
-    return not empty     # True when we have results
+        empty = _results_are_empty(driver)
+        if st:
+            if empty:
+                st.info("ℹ️ All tab counters are 0 – no articles.")
+            else:
+                st.write("✅ Headlines present – results found.")
+        return not empty     # True when we have results
+    except TimeoutException:
+        print("TimeoutException! Dumping tab bar state for diagnostics:")
+        try:
+            bar = driver.find_element(
+                By.XPATH,
+                "//ul[contains(@class,'nav-tabs') and contains(@class,'navbar-nav-pub')]"
+            )
+            print("Tab bar HTML:")
+            print(bar.get_attribute("outerHTML"))
+        except Exception as ex:
+            print("Could not locate tab bar for dumping HTML:", ex)
+        raise
+
 
 
 
