@@ -28,6 +28,7 @@ from utils.web_scraping_utils import (
     ensure_search_results_ready,
     _dump_tab_counters,   
     click_first_result,
+    scrape_author_article_content,
     run_newspaper_editorial_task,
     run_scmp_editorial_task,
     create_docx_report
