@@ -185,6 +185,7 @@ def remove_inline_figure_table_markers(text: str) -> str:
           e.g. "（Terence Tao，小圖[G1]）" -> "（Terence Tao）"
     Works on full-width and ASCII parentheses/brackets, in Simplified/Traditional.
     """
+    st.write("remove_inline_figure_table_markers called on:", text)
     if not text:
         return text
 
