@@ -117,6 +117,20 @@ def setup_webdriver(**kwargs):
             st_module.error(f"WebDriver setup failed: {e}")
         return None
 
+def reset_to_login_page(driver):
+    try:
+        driver.delete_all_cookies()
+        driver.get(WISERS_URL)
+        time.sleep(2)
+        # Attempt to force logout if available
+        try:
+            robust_logout_request(driver)
+        except Exception as e:
+            print("Robust logout failed/prelogin:", e)
+    except Exception as e:
+        print("Pre-login reset failed:", e)
+
+
 @retry_step
 def perform_login(**kwargs):
     """Perform login to Wisers with captcha solving"""
@@ -128,6 +142,9 @@ def perform_login(**kwargs):
     api_key = kwargs.get('api_key')
     st_module = kwargs.get('st_module')
     
+    # Ensure on login page
+    reset_to_login_page(driver)
+
     # Fill login form
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[data-qa-ci="groupid"]'))).send_keys(group_name)
     driver.find_element(By.CSS_SELECTOR, 'input[data-qa-ci="userid"]').send_keys(username)
