@@ -189,6 +189,12 @@ def perform_login(**kwargs):
         # No error found = successful login
         if st_module:
             st_module.write("✅ Login successfully verified.")
+        # NEW: Try to close tutorial modal if present
+        try:
+            close_tutorial_modal_ROBUST(driver=driver, wait=wait, status_text=st_module, st_module=st_module)
+        except Exception as e:
+            if st_module:
+                st_module.warning(f"Could not close tutorial modal: {e}")
         return
 
 @retry_step
