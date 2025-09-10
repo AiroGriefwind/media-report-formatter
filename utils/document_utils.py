@@ -185,7 +185,6 @@ def remove_inline_figure_table_markers(text: str) -> str:
           e.g. "（Terence Tao，小圖[G1]）" -> "（Terence Tao）"
     Works on full-width and ASCII parentheses/brackets, in Simplified/Traditional.
     """
-    st.write("remove_inline_figure_table_markers called on:", text)
     if not text:
         return text
 
@@ -743,8 +742,10 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
     for name in EDITORIAL_MEDIA_ORDER:
         if name in editorial_groups:
             editorial_groups[name]['first_item'] = remove_reporter_phrases(editorial_groups[name]['first_item'])
+            editorial_groups[name]['first_item'] = remove_inline_figure_table_markers(editorial_groups[name]['first_item'])
             for item in editorial_groups[name]['additional_items']:
                 item['text'] = remove_reporter_phrases(item['text'])
+                item['text'] = remove_inline_figure_table_markers(item['text'])
             add_media_group_to_document(new_doc, editorial_groups[name])
 
 
@@ -768,11 +769,13 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
                 add_section_header_to_doc(new_doc, content_data['text'])
             else:
                 clean_text = remove_reporter_phrases(content_data['text'])
+                clean_text = remove_inline_figure_table_markers(clean_text)
                 p = new_doc.add_paragraph(clean_text)
                 format_content_paragraph(p)
             previous_was_content = True
         elif content_type == 'article':
             content_data['text'] = remove_reporter_phrases(content_data['text'])
+            content_data['text'] = remove_inline_figure_table_markers(content_data['text'])
             add_article_to_document(new_doc, content_data, previous_was_content)
             previous_was_content = True
             last_article_idx = idx
