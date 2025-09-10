@@ -143,7 +143,7 @@ def perform_login(**kwargs):
     st_module = kwargs.get('st_module')
     
     # Ensure on login page
-    st.write("Resetting to login page...")
+    st_module.write("Resetting to login page...")
     reset_to_login_page(driver)
 
     # Fill login form
