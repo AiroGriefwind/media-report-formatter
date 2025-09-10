@@ -176,6 +176,73 @@ def is_subtitle_candidate(text, prev_text, next_text):
     
     return True
 
+def remove_inline_figure_table_markers(text: str) -> str:
+    """
+    Remove inline references to figures/tables that appear inside parentheses/brackets.
+    Handles cases like:
+      - （見圖）, （见表）, （详见表）, （圖一）, （图1）, 【圖】, 【见表】, [G1]
+      - Mixed content where a trailing marker follows valid text:
+          e.g. "（Terence Tao，小圖[G1]）" -> "（Terence Tao）"
+    Works on full-width and ASCII parentheses/brackets, in Simplified/Traditional.
+    """
+    if not text:
+        return text
+
+    import re
+    num_cn = '一二三四五六七八九十百千零〇两兩'
+    markers_prefix = r'(?:見|见|详见|詳見|小|附)?'
+    marker_core = r'(?:图|圖|表)'
+    marker_suffix = rf'(?:\s*(?:[0-9]+|[{num_cn}]{{1,3}}))?'
+    full_marker = markers_prefix + r'\s*' + marker_core + marker_suffix
+
+    # Precompile regexes
+    re_sq_bracket_token = re.compile(r'\[\s*[GPgp]\d+\s*\]')
+    re_trailing_marker = re.compile(rf'[，,、]\s*{full_marker}\s*$')
+    re_full_marker_only = re.compile(rf'^\s*{full_marker}\s*$')
+    re_sq_or_fw_marker_only = re.compile(rf'^\s*(?:{full_marker}|[GPgp]\d+)\s*$')
+
+    s = text
+
+    # 1) Remove simple [G1]/[P2] tokens anywhere
+    s = re_sq_bracket_token.sub('', s)
+
+    # 2) Clean parentheses content while preserving earlier meaningful parts
+    for name, rx in [('fullwidth', re.compile(r'（([^（）]*)）')),
+                     ('ascii', re.compile(r'\(([^()]*)\)'))]:
+        def paren_repl(m):
+            inner = m.group(1) or ''
+            # Remove any residual [G1]-like tokens inside
+            inner_clean = re_sq_bracket_token.sub('', inner)
+            # If the parentheses contain only a marker like (见图1)/(表三)/(小图) → drop entire ()
+            if re_full_marker_only.match(inner_clean.strip()):
+                return ''
+            # If marker trails after a comma, drop that trailing segment
+            kept = re_trailing_marker.sub('', inner_clean).strip()
+            if not kept:
+                return ''
+            return ('（' if name == 'fullwidth' else '(') + kept + ('）' if name == 'fullwidth' else ')')
+        s = rx.sub(paren_repl, s)
+
+    # 3) Remove bracketed segments that are purely markers (【见表】, [见图2], 【图】)
+    for name, rx in [('square', re.compile(r'\[([^\[\]]*)\]')),
+                     ('fullwidth', re.compile(r'【([^【】]*)】'))]:
+        def bracket_repl(m):
+            inner = (m.group(1) or '').strip()
+            if re_sq_or_fw_marker_only.match(inner):
+                return ''
+            return m.group(0)
+        s = rx.sub(bracket_repl, s)
+
+    # 4) Cleanup empty pairs and spacing
+    s = re.sub(r'\(\s*\)', '', s)
+    s = re.sub(r'（\s*）', '', s)
+    s = re.sub(r'\[\s*\]', '', s)
+    s = re.sub(r'【\s*】', '', s)
+    s = re.sub(r'\s{2,}', ' ', s)
+    s = re.sub(r'\s+([，。；：、？！)])', r'\1', s)
+    s = re.sub(r'（\s+', '（', s)
+
+    return s.strip()
 
 
 def remove_reporter_phrases(text):
@@ -535,6 +602,7 @@ def extract_document_structure(doc_path, json_output_path=None):
         text = apply_gatekeeper_corrections(text)
 
         text = remove_reporter_phrases(text)
+        text = remove_inline_figure_table_markers(text)
 
          # Check for subtitle removal BEFORE other processing
         if i > 0 and i < num_paragraphs - 1:  # Not first or last paragraph
@@ -589,6 +657,9 @@ def extract_document_structure(doc_path, json_output_path=None):
                 converted_content = apply_gatekeeper_corrections(converted_content)
                 # Remove reporter phrases from media content
                 converted_content = remove_reporter_phrases(converted_content)
+                # Remove inline figure/table markers from media content
+                converted_content = remove_inline_figure_table_markers(converted_content)
+                
 
                 media_info['content'] = converted_content
                 current_media_group = {'clean_name': media_info['clean_name'], 'original_name': media_info['full_name'], 'start_index': i, 'first_item': converted_content, 'additional_items': []}
@@ -613,7 +684,9 @@ def extract_document_structure(doc_path, json_output_path=None):
                     next_paragraph_text_original = paragraphs[i+1].text.strip()
                     next_paragraph_text = convert_to_traditional_chinese(next_paragraph_text_original)
                     next_paragraph_text = apply_gatekeeper_corrections(next_paragraph_text)
-                    
+                    next_paragraph_text = remove_reporter_phrases(next_paragraph_text)
+                    next_paragraph_text = remove_inline_figure_table_markers(next_paragraph_text)
+
                     # ENHANCED: Check for both original format and new metadata format
                     if (is_source_citation(next_paragraph_text) or is_new_metadata_format(next_paragraph_text_original)) and is_valid_headline(text):
                         is_title = True
