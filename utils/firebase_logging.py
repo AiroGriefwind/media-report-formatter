@@ -1,27 +1,36 @@
 # utils/firebase_logging.py
 import os, json, uuid, datetime
 import firebase_admin
-from firebase_admin import credentials, firestore, storage
+from firebase_admin import credentials, db, storage
+import logging
 
 _LOGGER = None  # module-level singleton
 
 class FirebaseLogger:
     def __init__(self, st, run_context=None):
-        # init from Streamlit secrets
-        svc = st.secrets["firebase"]["service_account"]
-        bucket = st.secrets.get("firebase", {}).get("storage_bucket") or f"{svc['project_id']}.appspot.com"
-        if not firebase_admin._apps:
-            cred = credentials.Certificate(svc)
-            app = firebase_admin.initialize_app(cred, {"storageBucket": bucket})
-        else:
-            app = firebase_admin.get_app()
-        self.db = firestore.client(app)
-        self.bucket = storage.bucket(app=app)
-        self.run_id = str(uuid.uuid4())
-        self.run_ref = self.db.collection("runs").document(self.run_id)
-        self.events_ref = self.run_ref.collection("events")
-        self.run_ref.set({"started_at": datetime.datetime.utcnow().isoformat() + "Z",
-                          "status": "running", "context": run_context or {}}, merge=True)
+        self.st = st
+        self.run_ref = None
+        
+        if "firebase" in st.secrets:
+            # FIX: Convert the Streamlit secrets object to a standard Python dictionary.
+            # The Firebase SDK expects a `dict`, but `st.secrets` returns a proxy object.
+            svc_dict = dict(st.secrets["firebase"]["service_account"])
+            
+            # Use the newly created dictionary to get the project_id
+            bucket = st.secrets.get("firebase", {}).get("storage_bucket") or f"{svc_dict['project_id']}.appspot.com"
+            
+            if not firebase_admin._apps:
+                # Pass the standard dictionary to the Certificate constructor
+                cred = credentials.Certificate(svc_dict)
+                app = firebase_admin.initialize_app(cred, {"storageBucket": bucket})
+            else:
+                app = firebase_admin.get_app()
+                
+            self.db = db.reference(f"logs/streamlit/{st.session_id}")
+            self.bucket = storage.bucket(app=app)
+            
+            if run_context:
+                self.run_ref = self.db.push({"context": run_context})
 
     def info(self, msg, **extra): self._event("INFO", msg, extra)
     def warn(self, msg, **extra): self._event("WARN", msg, extra)
