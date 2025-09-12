@@ -27,7 +27,10 @@ class FirebaseLogger:
 
             if not firebase_admin._apps:
                 cred = credentials.Certificate(svc_dict)
-                app = firebase_admin.initialize_app(cred, {"storageBucket": bucket})
+                app = firebase_admin.initialize_app(cred, {
+                    "databaseURL": st.secrets["firebase"]["database_url"],  # NEW
+                    "storageBucket": bucket,
+                })
             else:
                 app = firebase_admin.get_app()
 
