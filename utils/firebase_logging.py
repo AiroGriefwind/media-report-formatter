@@ -18,36 +18,52 @@ def _get_or_create_session_id(st):
 
 class FirebaseLogger:
     def __init__(self, st, run_context=None):
+        import uuid, datetime
+
         self.st = st
-        self.run_ref = None
+        self.bucket = None      # Will be set if Firebase enabled
+        self.events_ref = None  # Points to runs/<run_id>/events
+        self.screens_ref = None # Points to runs/<run_id>/screens
+        self.run_ref = None     # Points to this run's root
+        self.run_id = None
+        self.session_id = _get_or_create_session_id(st)
 
         if "firebase" in st.secrets:
             svc_dict = dict(st.secrets["firebase"]["service_account"])
             bucket = st.secrets.get("firebase", {}).get("storage_bucket") or f"{svc_dict['project_id']}.appspot.com"
+            db_url = st.secrets["firebase"]["database_url"]  # Ensure you have this in secrets.toml
 
+            # Initialize firebase only once per process
             if not firebase_admin._apps:
                 cred = credentials.Certificate(svc_dict)
                 app = firebase_admin.initialize_app(cred, {
-                    "databaseURL": st.secrets["firebase"]["database_url"],  # NEW
+                    "databaseURL": db_url,
                     "storageBucket": bucket,
                 })
             else:
                 app = firebase_admin.get_app()
 
-            # Use our own per-session UUID instead of st.session_id
-            self.session_id = _get_or_create_session_id(st)
+            # Reference: logs/streamlit/<session_id>
             self.db = db.reference(f"logs/streamlit/{self.session_id}")
 
-            # Prepare subpaths and storage
-            self.events_ref = self.db.child("events")
+            # --- START OF RUN-ISOLATION PATCH ---
+            # Create a new, sortable run_id: e.g. 20250912T161100_ab1c2d
+            self.run_id = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S") + "_" + uuid.uuid4().hex[:6]
+            # Pointer to this run:
+            self.run_ref = self.db.child("runs").child(self.run_id)
+            self.events_ref = self.run_ref.child("events")
+            self.screens_ref = self.run_ref.child("screens")
+            # Mark start/meta fields
+            meta = {
+                "started_at": datetime.datetime.utcnow().isoformat() + "Z"
+            }
+            if run_context:
+                meta["context"] = run_context
+            self.run_ref.update(meta)
+
+            # Set up gs bucket as before
             self.bucket = storage.bucket(app=app)
 
-            # Optionally record run context/start
-            if run_context:
-                self.run_ref = self.db.child("runs").push({
-                    "context": run_context,
-                    "started_at": datetime.datetime.utcnow().isoformat() + "Z",
-                })
 
     def info(self, msg, **extra):
         self._event("INFO", msg, extra)
@@ -59,21 +75,23 @@ class FirebaseLogger:
         self._event("ERROR", msg, extra)
 
     def _event(self, level, message, extra=None):
-        payload = {
-            "ts": datetime.datetime.utcnow().isoformat() + "Z",
-            "level": level,
-            "message": message,
-        }
+        payload = {"ts": ..., "level": level, "message": message}
         if extra:
             payload.update(extra)
-        # Realtime Database: append using push(), not add()
         self.events_ref.push(payload)
 
     def upload_screenshot(self, png_bytes, name_hint="screenshot"):
-        path = f"runs/{self.session_id}/screens/{uuid.uuid4()}_{name_hint}.png"
+        path = f"runs/{self.session_id}/{self.run_id}/screens/{uuid.uuid4()}_{name_hint}.png"
         blob = self.bucket.blob(path)
         blob.upload_from_string(png_bytes, content_type="image/png")
-        return f"gs://{self.bucket.name}/{path}"
+        gs_url = f"gs://{self.bucket.name}/{path}"
+        meta = {
+            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            "label": name_hint,
+            "gs_url": gs_url,
+        }
+        self.screens_ref.push(meta)
+        return gs_url
 
     def end_run(self, status="completed", summary=None):
         if self.run_ref:
