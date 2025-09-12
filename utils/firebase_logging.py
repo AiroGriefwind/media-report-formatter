@@ -75,7 +75,11 @@ class FirebaseLogger:
         self._event("ERROR", msg, extra)
 
     def _event(self, level, message, extra=None):
-        payload = {"ts": ..., "level": level, "message": message}
+        payload = {
+            "ts": datetime.datetime.utcnow().isoformat() + "Z",
+            "level": level,
+            "message": message,
+        }
         if extra:
             payload.update(extra)
         self.events_ref.push(payload)
@@ -92,6 +96,7 @@ class FirebaseLogger:
         }
         self.screens_ref.push(meta)
         return gs_url
+
 
     def end_run(self, status="completed", summary=None):
         if self.run_ref:
