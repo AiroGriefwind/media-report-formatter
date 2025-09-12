@@ -83,35 +83,40 @@ class FirebaseLogger:
         self._event("ERROR", msg, extra)
 
     def _event(self, level, message, extra=None):
+        # Only log to local, NOT Firebase DB
         payload = {
-            "ts": datetime.utcnow().isoformat() + "Z",
+            "ts": datetime.datetime.utcnow().isoformat() + "Z",
             "level": level,
             "message": message
         }
         if extra:
             payload.update(extra)
-        self.events_ref.push(payload)
-        # Collect for local json log
         self.local_log_events.append(payload)
+        # DO NOT: self.events_ref.push(payload)
 
-    def upload_screenshot_local(self, png_bytes, log_dir, name_hint="screenshot"):
-        # Save to disk in the chosen log_dir/screens/
-        folder = os.path.join(log_dir, "screens")
-        os.makedirs(folder, exist_ok=True)
-        now_hkt = datetime.now(HKT)
-        fname = f"{now_hkt.strftime('%Y%m%dT%H%M%S')}_{name_hint}.png"
-        fp = os.path.join(folder, fname)
-        with open(fp, "wb") as f:
-            f.write(png_bytes)
-        return fp
+    def upload_file_to_firebase(self, local_fp, remote_path):
+        blob = self.bucket.blob(remote_path)
+        blob.upload_from_filename(local_fp)
+        return f"gs://{self.bucket.name}/{remote_path}"
 
     def export_log_json(self, log_dir):
-        # Save all events to JSON file in the log_dir
+        # Write file locally as before
         os.makedirs(log_dir, exist_ok=True)
         fp = os.path.join(log_dir, f"{self.run_id}_logs.json")
         with open(fp, "w", encoding="utf-8") as f:
             json.dump(self.local_log_events, f, ensure_ascii=False, indent=2)
         return fp
+
+    def upload_scrcap_to_firebase(self, local_fp, name_hint="screenshot"):
+        # Upload individual screenshot file
+        run_screens_dir = f"runs/{self.session_id}/{self.run_id}/screens/"
+        remote_path = run_screens_dir + os.path.basename(local_fp)
+        return self.upload_file_to_firebase(local_fp, remote_path)
+
+    def upload_json_to_firebase(self, json_fp):
+        run_dir = f"runs/{self.session_id}/{self.run_id}/"
+        remote_path = run_dir + os.path.basename(json_fp)
+        return self.upload_file_to_firebase(json_fp, remote_path)
 
 
     def end_run(self, status="completed", summary=None):
