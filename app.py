@@ -1,5 +1,9 @@
 import streamlit as st
 
+from utils.firebase_logging import patch_streamlit_logging, ensure_logger
+
+patch_streamlit_logging(st)  # mirrors st.* to Firebase
+
 # Import tab render functions
 from tabs.document_formatting import render_document_formatting_tab
 from tabs.web_scraping import render_web_scraping_tab
@@ -7,6 +11,12 @@ from tabs.international_news import render_international_news_tab
 
 def main():
     """Main application entry point"""
+
+    # Initialize Firebase logger for this session
+    st.set_page_config(page_title="AsiaNet Document Processing Tool", layout="wide", initial_sidebar_state="expanded")
+    # Create/refresh context for this session or after a Start button:
+    ensure_logger(st, run_context={"app": "asianet-tool", "session": st.session_state.get("session_id")})
+
     # Page configuration
     st.set_page_config(
         page_title="AsiaNet Document Processing Tool", 

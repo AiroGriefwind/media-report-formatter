@@ -6,6 +6,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 from datetime import datetime
 from selenium.webdriver.common.by import By
 
+# Firebase logging
+from utils.firebase_logging import ensure_logger
+
 # Fix rectangle characters in Streamlit： Ensure UTF-8 encoding for subprocesses
 import os
 os.environ["PYTHONIOENCODING"] = "utf-8"
@@ -62,6 +65,10 @@ def render_web_scraping_tab():
     keep_browser_open = st.sidebar.checkbox("Keep browser open after script finishes/fails")
     
     if st.button("🚀 Start Scraping and Generate Report", type="primary"):
+        ensure_logger(st, run_context={
+            "tab": "web_scraping",
+            "headless": bool(run_headless),
+        })
         _handle_scraping_process(
             group_name, username, password, api_key,
             authors_input, run_headless, keep_browser_open
@@ -95,6 +102,7 @@ def _get_api_key():
 
 def _handle_scraping_process(group_name, username, password, api_key, authors_input, run_headless, keep_browser_open):
     """Handle the main scraping process"""
+    
     if not all([group_name, username, password, api_key]):
         st.error("❌ Please provide all required credentials and the API key to proceed.")
         st.stop()
