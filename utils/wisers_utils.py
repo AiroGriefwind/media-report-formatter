@@ -58,8 +58,9 @@ def retry_step(func):
                         )
                         fb = get_logger()
                         if fb:
-                            uri = fb.upload_screenshot(img_bytes, name_hint=f"{func.__name__}_attempt{trial}")
-                            fb.info("screenshot_uploaded", step=func.__name__, attempt=trial, uri=uri)
+                            log_dir = f"./logs/{fb.run_id}/"
+                            fb.upload_screenshot_local(img_bytes, log_dir, name_hint=f"{func.__name__}_attempt{trial}")
+
 
                     except Exception as screencap_err:
                         if st:

@@ -7,7 +7,7 @@ from datetime import datetime
 from selenium.webdriver.common.by import By
 
 # Firebase logging
-from utils.firebase_logging import ensure_logger
+from utils.firebase_logging import ensure_logger, get_logger
 
 # Fix rectangle characters in Streamlit： Ensure UTF-8 encoding for subprocesses
 import os
@@ -102,7 +102,8 @@ def _get_api_key():
 
 def _handle_scraping_process(group_name, username, password, api_key, authors_input, run_headless, keep_browser_open):
     """Handle the main scraping process"""
-    
+    logger = get_logger(st)
+
     if not all([group_name, username, password, api_key]):
         st.error("❌ Please provide all required credentials and the API key to proceed.")
         st.stop()
@@ -264,7 +265,12 @@ def _handle_scraping_process(group_name, username, password, api_key, authors_in
             if driver:
                 if not keep_browser_open:
                     robust_logout_request(driver, st_module=st)
+                    
+                    log_dir = f"./logs/{logger.run_id}/"
+                    logger.export_log_json(log_dir)
+
                 else:
                     st.warning("🤖 As requested, the browser window has been left open for inspection.")
         except Exception as cleanup_err:
             st.error(f"Error in cleanup: {cleanup_err}")
+            

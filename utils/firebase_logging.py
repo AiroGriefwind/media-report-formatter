@@ -2,9 +2,14 @@
 
 import uuid
 import datetime
+import pytz
+import os
+import json
 
 import firebase_admin
 from firebase_admin import credentials, db, storage
+
+HKT = pytz.timezone('Asia/Hong_Kong')
 
 _LOGGER = None  # kept for backward compatibility, but we now prefer session_state
 
@@ -48,7 +53,10 @@ class FirebaseLogger:
 
             # --- START OF RUN-ISOLATION PATCH ---
             # Create a new, sortable run_id: e.g. 20250912T161100_ab1c2d
-            self.run_id = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S") + "_" + uuid.uuid4().hex[:6]
+            # Use current time in HKT for run_id (for local files/folders)
+            now_hkt = datetime.now(HKT)
+            self.run_id = now_hkt.strftime("%Y%m%dT%H%M%S") + "_" + uuid.uuid4().hex[:6]
+            self.local_log_events = []
             # Pointer to this run:
             self.run_ref = self.db.child("runs").child(self.run_id)
             self.events_ref = self.run_ref.child("events")
@@ -76,26 +84,34 @@ class FirebaseLogger:
 
     def _event(self, level, message, extra=None):
         payload = {
-            "ts": datetime.datetime.utcnow().isoformat() + "Z",
+            "ts": datetime.utcnow().isoformat() + "Z",
             "level": level,
-            "message": message,
+            "message": message
         }
         if extra:
             payload.update(extra)
         self.events_ref.push(payload)
+        # Collect for local json log
+        self.local_log_events.append(payload)
 
-    def upload_screenshot(self, png_bytes, name_hint="screenshot"):
-        path = f"runs/{self.session_id}/{self.run_id}/screens/{uuid.uuid4()}_{name_hint}.png"
-        blob = self.bucket.blob(path)
-        blob.upload_from_string(png_bytes, content_type="image/png")
-        gs_url = f"gs://{self.bucket.name}/{path}"
-        meta = {
-            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-            "label": name_hint,
-            "gs_url": gs_url,
-        }
-        self.screens_ref.push(meta)
-        return gs_url
+    def upload_screenshot_local(self, png_bytes, log_dir, name_hint="screenshot"):
+        # Save to disk in the chosen log_dir/screens/
+        folder = os.path.join(log_dir, "screens")
+        os.makedirs(folder, exist_ok=True)
+        now_hkt = datetime.now(HKT)
+        fname = f"{now_hkt.strftime('%Y%m%dT%H%M%S')}_{name_hint}.png"
+        fp = os.path.join(folder, fname)
+        with open(fp, "wb") as f:
+            f.write(png_bytes)
+        return fp
+
+    def export_log_json(self, log_dir):
+        # Save all events to JSON file in the log_dir
+        os.makedirs(log_dir, exist_ok=True)
+        fp = os.path.join(log_dir, f"{self.run_id}_logs.json")
+        with open(fp, "w", encoding="utf-8") as f:
+            json.dump(self.local_log_events, f, ensure_ascii=False, indent=2)
+        return fp
 
 
     def end_run(self, status="completed", summary=None):
