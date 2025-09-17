@@ -1,7 +1,7 @@
 # utils/firebase_logging.py
 
 import uuid
-from datetime import datetime
+import datetime as dt
 import pytz
 import os
 import json
@@ -23,7 +23,6 @@ def _get_or_create_session_id(st):
 
 class FirebaseLogger:
     def __init__(self, st, run_context=None):
-        import uuid, datetime
 
         self.st = st
         self.bucket = None      # Will be set if Firebase enabled
@@ -53,8 +52,9 @@ class FirebaseLogger:
 
             # --- START OF RUN-ISOLATION PATCH ---
             # Create a new, sortable run_id: e.g. 20250912T161100_ab1c2d
+
             # Use current time in HKT for run_id (for local files/folders)
-            now_hkt = datetime.now(HKT)
+            now_hkt = dt.datetime.now(HKT)
             self.run_id = now_hkt.strftime("%Y%m%dT%H%M%S") + "_" + uuid.uuid4().hex[:6]
             self.local_log_events = []
             # Pointer to this run:
@@ -63,7 +63,7 @@ class FirebaseLogger:
             self.screens_ref = self.run_ref.child("screens")
             # Mark start/meta fields
             meta = {
-                "started_at": datetime.datetime.utcnow().isoformat() + "Z"
+                "started_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
             }
             if run_context:
                 meta["context"] = run_context
@@ -85,10 +85,10 @@ class FirebaseLogger:
     def _event(self, level, message, extra=None):
         # Only log to local, NOT Firebase DB
         payload = {
-            "ts": datetime.datetime.utcnow().isoformat() + "Z",
-            "level": level,
-            "message": message
-        }
+                    "ts": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "level": level,
+                    "message": message
+                }
         if extra:
             payload.update(extra)
         self.local_log_events.append(payload)
@@ -122,10 +122,10 @@ class FirebaseLogger:
     def end_run(self, status="completed", summary=None):
         if self.run_ref:
             self.run_ref.update({
-                "ended_at": datetime.datetime.utcnow().isoformat() + "Z",
-                "status": status,
-                "summary": summary or {},
-            })
+                "ended_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+                 "status": status,
+                 "summary": summary or {},
+             })
 
 
 def ensure_logger(st, run_context=None):
