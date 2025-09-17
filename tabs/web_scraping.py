@@ -42,6 +42,7 @@ def render_web_scraping_tab():
     """Render the web scraping and report generation tab"""
 
     ensure_logger(st, run_context="tab_webscraping")
+    svc_dict = dict(st.secrets["firebase"]["service_account"])
 
     st.header("Web Scraping and Report Generation")
     st.markdown("Scrape articles by specified authors and newspaper editorials, then generate a combined Word report.")
@@ -51,6 +52,7 @@ def render_web_scraping_tab():
         
         with col1:
             group_name, username, password = _get_credentials()
+            bucket = st.secrets.get("firebase", {}).get("storage_bucket") or f"{svc_dict['project_id']}.appspot.com"
             
         with col2:
             api_key = _get_api_key()
