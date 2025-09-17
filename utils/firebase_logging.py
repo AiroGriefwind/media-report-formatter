@@ -1,7 +1,7 @@
 # utils/firebase_logging.py
 
 import uuid
-import datetime
+from datetime import datetime
 import pytz
 import os
 import json
