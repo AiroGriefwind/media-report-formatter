@@ -48,7 +48,7 @@ def render_web_scraping_tab():
     st.markdown("Scrape articles by specified authors and newspaper editorials, then generate a combined Word report.")
     
     with st.expander("⚙️ Scraping Configuration", expanded=True):
-        col1, col2 = st.columns(3)
+        col1, col2 = st.columns(2)
         
         with col1:
             group_name, username, password, bucket = _get_credentials()
@@ -87,7 +87,7 @@ def _get_credentials():
         svc_dict = dict(st.secrets["firebase"]["service_account"])
         bucket = st.secrets.get("firebase", {}).get("storage_bucket") or f"{svc_dict['project_id']}.appspot.com"
         st.success("✅ Credentials loaded from secrets")
-        st.info(f"Group: {group_name}\n\nUsername: {username}\n\nPassword: ****")
+        st.info(f"Group: {group_name}\n\nUsername: {username}\n\nPassword: ****\n\nFirebase Bucket: {bucket}")
         return group_name, username, password, bucket
     except (KeyError, AttributeError, st.errors.StreamlitAPIException):
         st.warning("⚠️ Secrets not found. Please enter credentials manually:")
