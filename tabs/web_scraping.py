@@ -110,17 +110,22 @@ def _get_api_key():
 
 def _handle_scraping_process(group_name, username, password, api_key, authors_input, run_headless, keep_browser_open):
     """Handle the main scraping process"""
+    st.write("DEBUG: handler entered")
     logger = get_logger(st)
+    st.write("DEBUG: got logger")
+    st.write(f"Credentials: {group_name}, {username}, {password}, {api_key}")
+    authors_list = [author.strip() for author in authors_input.split('\n') if author.strip()]
+    st.write(f"Authors provided: {authors_list}")
 
     if not all([group_name, username, password, api_key]):
-        st.error("❌ Please provide all required credentials and the API key to proceed.")
+        st.error("Please provide all required credentials and the API key to proceed.")
         st.stop()
 
-    authors_list = [author.strip() for author in authors_input.split('\n') if author.strip()]
     if not authors_list:
-        st.error("❌ Please enter at least one author to search.")
+        st.error("Please enter at least one author to search.")
         st.stop()
 
+    st.write("DEBUG: passed all initial checks. About to create progress bar...")
     progress_bar = st.progress(0)
     status_text = st.empty()
     driver = None
