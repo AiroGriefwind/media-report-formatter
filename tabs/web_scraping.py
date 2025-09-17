@@ -55,7 +55,8 @@ def render_web_scraping_tab():
             
         with col2:
             api_key = _get_api_key()
-    
+    st.info(f"DEBUG: Current Firebase Storage bucket is: {bucket}")
+
     authors_input = st.text_area(
         "Authors to Search (one per line)",
         value="李先知\n余錦賢\n傅流螢\n黄锦辉",
