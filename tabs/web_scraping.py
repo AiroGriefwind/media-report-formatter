@@ -6,6 +6,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from datetime import datetime
 from selenium.webdriver.common.by import By
 
+
 # Firebase logging
 from utils.firebase_logging import ensure_logger, get_logger
 
@@ -42,7 +43,6 @@ def render_web_scraping_tab():
     """Render the web scraping and report generation tab"""
 
     ensure_logger(st, run_context="tab_webscraping")
-    svc_dict = dict(st.secrets["firebase"]["service_account"])
 
     st.header("Web Scraping and Report Generation")
     st.markdown("Scrape articles by specified authors and newspaper editorials, then generate a combined Word report.")
@@ -51,8 +51,7 @@ def render_web_scraping_tab():
         col1, col2 = st.columns(2)
         
         with col1:
-            group_name, username, password = _get_credentials()
-            bucket = st.secrets.get("firebase", {}).get("storage_bucket") or f"{svc_dict['project_id']}.appspot.com"
+            group_name, username, password, bucket = _get_credentials()
             
         with col2:
             api_key = _get_api_key()
@@ -85,15 +84,18 @@ def _get_credentials():
         group_name = st.secrets["wisers"]["group_name"]
         username = st.secrets["wisers"]["username"] 
         password = st.secrets["wisers"]["password"]
+        svc_dict = dict(st.secrets["firebase"]["service_account"])
+        bucket = st.secrets.get("firebase", {}).get("storage_bucket") or f"{svc_dict['project_id']}.appspot.com"
         st.success("✅ Credentials loaded from secrets")
         st.info(f"Group: {group_name}\n\nUsername: {username}\n\nPassword: ****")
-        return group_name, username, password
+        return group_name, username, password, bucket
     except (KeyError, AttributeError, st.errors.StreamlitAPIException):
         st.warning("⚠️ Secrets not found. Please enter credentials manually:")
         group_name = st.text_input("Group Name", value="SPRG1")
         username = st.text_input("Username", placeholder="Enter username")
         password = st.text_input("Password", type="password", placeholder="Enter password")
-        return group_name, username, password
+        bucket = None
+        return group_name, username, password, bucket
 
 def _get_api_key():
     """Helper function to get API key from secrets or manual input"""
