@@ -40,6 +40,12 @@ from utils.web_scraping_utils import (
 
 def render_web_scraping_tab():
     """Render the web scraping and report generation tab"""
+
+    ensure_logger(st, run_context={
+            "tab": "web_scraping",
+            "headless": bool(run_headless),
+        })
+
     st.header("Web Scraping and Report Generation")
     st.markdown("Scrape articles by specified authors and newspaper editorials, then generate a combined Word report.")
     

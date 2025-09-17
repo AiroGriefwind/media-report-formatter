@@ -59,7 +59,7 @@ def retry_step(func):
                         fb = get_logger(st)
                         if fb:
                             log_dir = f"./logs/{fb.run_id}/"
-                            fb.upload_screenshot_local(img_bytes, log_dir, name_hint=f"{func.__name__}_attempt{trial}")
+                            fb.upload_scrcap_to_firebase(img_bytes, log_dir, name_hint=f"{func.__name__}_attempt{trial}")
 
 
                     except Exception as screencap_err:
