@@ -48,7 +48,7 @@ def render_web_scraping_tab():
     st.markdown("Scrape articles by specified authors and newspaper editorials, then generate a combined Word report.")
     
     with st.expander("⚙️ Scraping Configuration", expanded=True):
-        col1, col2 = st.columns(2)
+        col1, col2 = st.columns(3)
         
         with col1:
             group_name, username, password, bucket = _get_credentials()
