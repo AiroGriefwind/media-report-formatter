@@ -23,6 +23,15 @@ from .config import CORRECTION_MAP, MEDIA_NAME_MAPPINGS, EDITORIAL_MEDIA_ORDER, 
 # DOCUMENT FORMATTING FUNCTIONS
 # =============================================================================
 
+def is_truly_blank(text):
+    if not text:
+        return True
+    chars_to_remove = ['\u00A0', '\u200B']  # Add more invisible chars as needed
+    for c in chars_to_remove:
+        text = text.replace(c, '')
+    return text.strip() == ''
+
+
 def is_source_citation(text):
     """Check if text is a source citation"""
     if not text: 
@@ -160,8 +169,8 @@ def is_subtitle_candidate(text, prev_text, next_text):
         return False
     
     # Check if previous and next texts are blank/empty
-    prev_is_blank = not prev_text or not prev_text.strip()
-    next_is_blank = not next_text or not next_text.strip()
+    prev_is_blank = is_truly_blank(prev_text)
+    next_is_blank = is_truly_blank(next_text)
     
     if not (prev_is_blank and next_is_blank):
         return False
