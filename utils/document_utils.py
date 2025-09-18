@@ -23,21 +23,28 @@ from .config import CORRECTION_MAP, MEDIA_NAME_MAPPINGS, EDITORIAL_MEDIA_ORDER, 
 # DOCUMENT FORMATTING FUNCTIONS
 # =============================================================================
 
-def is_truly_blank(text):
-    if not text:
-        return True
-    chars_to_remove = ['\u00A0', '\u200B']  # Add more invisible chars as needed
-    for c in chars_to_remove:
-        text = text.replace(c, '')
-    return text.strip() == ''
-
-def split_paragraphs_on_linebreaks(doc):
-    new_paragraphs = []
+def sanitize_doc_paragraphs(doc):
+    """
+    Clean all paragraphs to plain text (like ctrl+shift+v pasted).
+    Removes all formatting, replaces all whitespace variants with normal spaces,
+    and collapses multiple linebreaks or non-printing chars.
+    """
+    sanitized = []
     for para in doc.paragraphs:
-        lines = para.text.replace('\r', '\n').split('\n')
-        for line in lines:
-            new_paragraphs.append(line)
-    return new_paragraphs
+        # Unify all whitespace chars to a space/newline
+        text = para.text
+        text = text.replace('\u200b', '').replace('\xa0', ' ')  # Remove invisible non-breaking spaces etc.
+        # Replace any other suspicious chars as you encounter
+        # Replace all \r and \n with single newlines
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
+        # Collapse multiple spaces
+        text = re.sub(r'[ \t]+', ' ', text)
+        # Collapse multiple newlines
+        text = re.sub(r'\n+', '\n', text)
+        # Strip leading/trailing whitespace
+        text = text.strip()
+        sanitized.append(text)
+    return sanitized
 
 
 def is_source_citation(text):
@@ -177,8 +184,8 @@ def is_subtitle_candidate(text, prev_text, next_text):
         return False
     
     # Check if previous and next texts are blank/empty
-    prev_is_blank = is_truly_blank(prev_text)
-    next_is_blank = is_truly_blank(next_text)
+    prev_is_blank = not prev_text or not prev_text.strip()
+    next_is_blank = not next_text or not next_text.strip()
     
     if not (prev_is_blank and next_is_blank):
         return False
@@ -586,76 +593,70 @@ def add_end_marker(doc):
 def extract_document_structure(doc_path, json_output_path=None):
     """
     Extracts structure using state-based logic with Chinese conversion.
-    Subtitle detection works for both paragraph breaks and manual line breaks.
     """
-    # --- Import or define any needed external functions here --
-    # convert_to_traditional_chinese, apply_gatekeeper_corrections,
-    # remove_reporter_phrases, remove_inline_figure_table_markers,
-    # is_new_metadata_format, transform_metadata_line,
-    # detect_section_type, detect_editorial_media_line,
-    # is_editorial_continuation, is_source_citation, is_valid_headline
-    # -----------------------------------------------------------
-
     global TITLE_MODIFICATIONS
     TITLE_MODIFICATIONS = []
+
     if json_output_path is None:
         json_output_path = doc_path.replace('.docx', '_structure.json')
-
+    
     doc = Document(doc_path)
-    lines = split_paragraphs_on_linebreaks(doc)
-    num_lines = len(lines)
-    structure = {
-        'total_lines': num_lines,
-        'editorial_media_groups': [],
-        'sections': {},
-        'other_content': []
-    }
-
+    sanitized_paragraphs = sanitize_doc_paragraphs(doc)
+    structure = {'total_paragraphs': len(sanitized_paragraphs), 'editorial_media_groups': [], 'sections': {}, 'other_content': []}
+    
     current_section = None
     in_editorial = False
     section_counters = {}
+    
     is_expecting_title = False
     title_cooldown_counter = 0
-    skip_next = False
 
-    for i, text in enumerate(lines):
+    num_paragraphs = len(sanitized_paragraphs)
+    # add paragraph while skipping first paragraph after metadata
+    skip_next = False
+    for i, paragraph in enumerate(sanitized_paragraphs):
         if skip_next:
             skip_next = False
-            continue
+            continue  # Skip the paragraph after the metadata line
 
-        original_text = text.strip()
-        # (Conversion etc.)
+        
+        original_text = paragraph.text.strip()
         text = convert_to_traditional_chinese(original_text)
         text = apply_gatekeeper_corrections(text)
+
         text = remove_reporter_phrases(text)
         text = remove_inline_figure_table_markers(text)
 
-        # ---- Subtitle detection ----
-        prev_text = lines[i-1] if i > 0 else ''
-        next_text = lines[i+1] if i < num_lines-1 else ''
-        prev_text = convert_to_traditional_chinese(prev_text.strip())
-        next_text = convert_to_traditional_chinese(next_text.strip())
+         # Check for subtitle removal BEFORE other processing
+        if i > 0 and i < num_paragraphs - 1:  # Not first or last paragraph
+            prev_text = sanitized_paragraphs[i-1].text.strip() if i > 0 else ""
+            next_text = sanitized_paragraphs[i+1].text.strip() if i < num_paragraphs - 1 else ""
+            
+            # Convert previous and next text for proper comparison
+            prev_text = convert_to_traditional_chinese(prev_text)
+            next_text = convert_to_traditional_chinese(next_text)
+            
+            import streamlit as st
+            if is_subtitle_candidate(text, prev_text, next_text):
+                # This is a subtitle, skip it
+                st.write("subtitle found and removed:", text)
+                structure['other_content'].append({
+                    'index': i, 
+                    'text': text, 
+                    'type': 'subtitle_removed', 
+                    'section': current_section
+                })
+                continue  # Skip this subtitle
 
-        if is_subtitle_candidate(text, prev_text, next_text):
-            # For debugging, Streamlit write:
-            # import streamlit as st; st.write("subtitle found and removed:", text)
-            structure['other_content'].append({
-                'index': i,
-                'text': text,
-                'type': 'subtitle_removed',
-                'section': current_section
-            })
-            continue
-
-        # --- Metadata header block (example logic, update as per your actual metadata pattern) ---
         if is_new_metadata_format(original_text):
             next_content = ""
-            if i + 1 < num_lines:
-                next_line = lines[i + 1].strip()
-                next_content = convert_to_traditional_chinese(next_line)
+            if i + 1 < num_paragraphs:
+                next_paragraph_text = sanitized_paragraphs[i + 1].text.strip()
+                next_content = convert_to_traditional_chinese(next_paragraph_text)
                 next_content = apply_gatekeeper_corrections(next_content)
+            # Transform the metadata line with the *lead* of the next paragraph
             text = transform_metadata_line(text, next_content)
-            skip_next = True
+            skip_next = True   # Set flag to skip the next paragraph
 
         section_type = detect_section_type(text)
         if section_type:
@@ -665,93 +666,75 @@ def extract_document_structure(doc_path, json_output_path=None):
             title_cooldown_counter = 0
             if section_type not in structure['sections']:
                 structure['sections'][section_type] = []
-            structure['other_content'].append({
-                'index': i,
-                'text': text,
-                'type': 'section_header',
-                'section': section_type
-            })
+            structure['other_content'].append({'index': i, 'text': text, 'type': 'section_header', 'section': section_type})
             continue
-
-        if not text:
-            continue
-
+        
+        if not text: continue
+        
         if in_editorial:
             media_info = detect_editorial_media_line(text)
             if media_info:
+                # Apply conversion to media content as well
                 converted_content = convert_to_traditional_chinese(media_info['content'])
+                # Apply gatekeeper corrections to media content
                 converted_content = apply_gatekeeper_corrections(converted_content)
+                # Remove reporter phrases from media content
                 converted_content = remove_reporter_phrases(converted_content)
+                # Remove inline figure/table markers from media content
                 converted_content = remove_inline_figure_table_markers(converted_content)
+                
+
                 media_info['content'] = converted_content
-                current_media_group = {
-                    'clean_name': media_info['clean_name'],
-                    'original_name': media_info['full_name'],
-                    'start_index': i,
-                    'first_item': converted_content,
-                    'additional_items': []
-                }
+                current_media_group = {'clean_name': media_info['clean_name'], 'original_name': media_info['full_name'], 'start_index': i, 'first_item': converted_content, 'additional_items': []}
                 structure['editorial_media_groups'].append(current_media_group)
             elif 'current_media_group' in locals() and current_media_group and is_editorial_continuation(text):
                 current_media_group['additional_items'].append({'index': i, 'text': text})
         else:
+            # Rest of the existing logic remains the same, but with converted text
             if title_cooldown_counter > 0:
-                structure['other_content'].append({
-                    'index': i,
-                    'text': text,
-                    'type': 'content',
-                    'section': current_section
-                })
+                structure['other_content'].append({'index': i, 'text': text, 'type': 'content', 'section': current_section})
                 title_cooldown_counter -= 1
                 continue
 
             is_title = False
             prospective_title_text = text
+
             if is_expecting_title:
                 is_title = True
                 is_expecting_title = False
             else:
-                if i + 1 < num_lines:
-                    next_line_original = lines[i+1].strip()
-                    next_line_text = convert_to_traditional_chinese(next_line_original)
-                    next_line_text = apply_gatekeeper_corrections(next_line_text)
-                    next_line_text = remove_reporter_phrases(next_line_text)
-                    next_line_text = remove_inline_figure_table_markers(next_line_text)
-                    if (is_source_citation(next_line_text) or is_new_metadata_format(next_line_original)) and is_valid_headline(text):
+                if i + 1 < num_paragraphs:
+                    next_paragraph_text_original = sanitized_paragraphs[i+1].text.strip()
+                    next_paragraph_text = convert_to_traditional_chinese(next_paragraph_text_original)
+                    next_paragraph_text = apply_gatekeeper_corrections(next_paragraph_text)
+                    next_paragraph_text = remove_reporter_phrases(next_paragraph_text)
+                    next_paragraph_text = remove_inline_figure_table_markers(next_paragraph_text)
+
+                    # ENHANCED: Check for both original format and new metadata format
+                    if (is_source_citation(next_paragraph_text) or is_new_metadata_format(next_paragraph_text_original)) and is_valid_headline(text):
                         is_title = True
 
             if current_section and is_title:
                 match_existing_index = re.match(r'^(\d+)\.\s*(.*)', text)
                 if match_existing_index:
                     original_title_text, stripped_title_text = text, match_existing_index.group(2).strip()
-                    TITLE_MODIFICATIONS.append({
-                        'original_text': original_title_text,
-                        'modified_text': stripped_title_text,
-                        'section': current_section,
-                        'original_paragraph_index': i
-                    })
+                    TITLE_MODIFICATIONS.append({'original_text': original_title_text, 'modified_text': stripped_title_text, 'section': current_section, 'original_paragraph_index': i})
                     prospective_title_text = stripped_title_text
+                
                 section_counters[current_section] = section_counters.get(current_section, 0) + 1
                 article_index = section_counters[current_section]
-                structure['sections'][current_section].append({
-                    'index': i,
-                    'text': prospective_title_text,
-                    'type': 'article_title',
-                    'section_index': article_index
-                })
+                
+                structure['sections'][current_section].append({'index': i, 'text': prospective_title_text, 'type': 'article_title', 'section_index': article_index})
+                
                 title_cooldown_counter = 1
             else:
-                structure['other_content'].append({
-                    'index': i,
-                    'text': text,
-                    'type': 'content',
-                    'section': current_section
-                })
+                structure['other_content'].append({'index': i, 'text': text, 'type': 'content', 'section': current_section})
 
     structure['title_format_modifications'] = TITLE_MODIFICATIONS
+
     with open(json_output_path, 'w', encoding='utf-8') as f:
         json.dump(structure, f, ensure_ascii=False, indent=2, default=str)
-
+    
     return structure
 
 def rebuild_document_from_structure(doc_path, structure_json_path=None, output_path=None):
