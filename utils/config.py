@@ -5,6 +5,8 @@
 # Document correction mappings
 CORRECTION_MAP = {
     "餘錦賢": "余錦賢",
+    "嘉裡": "嘉里",
+    "嘉裏": "嘉里"
     # Add other corrections here, e.g., "错误词": "正确词"
 }
 
