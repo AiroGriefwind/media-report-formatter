@@ -113,40 +113,34 @@ def is_new_metadata_format(text):
 def transform_metadata_line(metadata_text, next_paragraph_text):
     if not metadata_text or not next_paragraph_text:
         return metadata_text
-    # Split parts
+
+    # Split by |
     parts = metadata_text.split('|')
     if len(parts) < 1:
         return metadata_text
-    next_paragraph_text = remove_reporter_phrases(next_paragraph_text)
+
     main_part = parts[0].strip()
-    m = re.match(
-        r'^([\u4e00-\u9fa5A-Za-z（）()]+)\s+([A-Z]?\d+)(==)?(?:\s+[^\s]+)?',
-        main_part
-    )
-    if m:
-        media_name = m.group(1)
-        page_number = m.group(2)
-        has_placeholder = bool(m.group(3))
-        # Try to get short name
-        short_media_name = get_short_media_name(media_name)
-        suffix = '及多份報章' if has_placeholder else ''
-        body = next_paragraph_text.strip()
-        if short_media_name:
-            transformed = f"{short_media_name} {page_number}{suffix}：{body}"
-            return transformed
-        else:
-            # Fallback: pick first 2 words (by whitespace)
-            words = media_name.split()
-            fallback_name = "".join(words[:2]) if len(words) >= 2 else media_name
-            # Grab the rest (everything from first space onward; keep original main_part tokens)
-            after_media = main_part[len(media_name):].strip()
-            fallback_metadata = f"{fallback_name} {after_media}".strip()
-            transformed = f"{fallback_metadata}：{body}"
-            # Log for debug
-            st.write(f"[Fallback triggered] Unrecognized media '{media_name}' => '{fallback_name}'. Used: {transformed}")
-            return transformed
-    # If it doesn't match the normal format, just return as original
-    return metadata_text
+    tokens = main_part.split()
+    # 安全檢查
+    if len(tokens) >= 2:
+        media_name = tokens[0]
+        page_number = tokens[1]
+        # （可選：欄類 e.g. 國際新聞）
+        section = ' '.join(tokens[2:]) if len(tokens) > 2 else ''
+    else:
+        # fallback to old logic
+        media_name = tokens[0]
+        page_number = ''
+        section = ''
+    # 處理 next_paragraph
+    body = remove_reporter_phrases(next_paragraph_text.strip())
+    short_media_name = get_short_media_name(media_name)
+    # 格式化
+    page_label = f" {page_number}" if page_number else ""
+    section_label = f" {section}" if section else ""
+    transformed = f"{short_media_name}{page_label}{section_label}：{body}"
+    return transformed
+
     
 
 def get_short_media_name(full_media_name):
