@@ -122,7 +122,7 @@ def transform_metadata_line(metadata_text, next_paragraph_text):
     if len(parts) < 1:
         return metadata_text
 
-    main_part = parts[0].strip()
+    main_part = parts[0].replace('==', '').strip()  # 徹底移除 '=='
     tokens = main_part.split()
     # 安全檢查
     if len(tokens) >= 2:
@@ -131,15 +131,19 @@ def transform_metadata_line(metadata_text, next_paragraph_text):
     else:
         media_name = tokens[0]
         page_number = ''
+
     body = remove_reporter_phrases(next_paragraph_text.strip())
     short_media_name = get_short_media_name(media_name)
 
-    suffix = '及多份報章' if has_placeholder else ''
-    page_label = f" {page_number}" if page_number else ""
+    # 組裝：及多份報章加在page_number後
+    page_label = f"{page_number}{'及多份報章' if has_placeholder and page_number else ''}"
+    # 如沒頁碼直接加在媒體名後（極少見，保底）
+    if has_placeholder and not page_number:
+        short_media_name += '及多份報章'
 
-    # 插入suffix
-    transformed = f"{short_media_name}{suffix}{page_label}：{body}"
+    transformed = f"{short_media_name} {page_label}：{body}".replace('  ', ' ').strip()
     return transformed
+
 
 
 def get_short_media_name(full_media_name):
