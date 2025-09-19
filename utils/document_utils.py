@@ -150,18 +150,22 @@ def transform_metadata_line(metadata_text, next_paragraph_text):
     
 
 def get_short_media_name(full_media_name):
-    # Try mapping first
+    """
+    Get short media name from full media name using MEDIA_NAME_MAPPINGS.
+    """
+    # Import here to avoid circular dependency
+    from .config import MEDIA_NAME_MAPPINGS
+
+    # Direct match
     if full_media_name in MEDIA_NAME_MAPPINGS:
         return MEDIA_NAME_MAPPINGS[full_media_name]
-    # Try common patterns
-    for pattern, short in [
-        ('經濟日報', '經濟'), ('明報', '明報'), ('文匯報', '文匯'),
-        ('東方日報', '東方'), ('星島日報', '星島'), ('大公報', '大公'), ('頭條日報', '頭條'),
-    ]:
-        if pattern in full_media_name:
-            return short
-    # Fallback: return None so transform_metadata_line handles it
-    return None
+    # Try first word match
+    first = full_media_name.split()[0]
+    if first in MEDIA_NAME_MAPPINGS:
+        return MEDIA_NAME_MAPPINGS[first]
+    # Fallback: try longest matching prefix
+    return first
+
 
 
 def is_subtitle_candidate(text, prev_text, next_text):
