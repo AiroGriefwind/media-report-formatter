@@ -114,6 +114,9 @@ def transform_metadata_line(metadata_text, next_paragraph_text):
     if not metadata_text or not next_paragraph_text:
         return metadata_text
 
+    # 檢查多份報章專用標記
+    has_placeholder = "==" in metadata_text
+
     # Split by |
     parts = metadata_text.split('|')
     if len(parts) < 1:
@@ -126,18 +129,18 @@ def transform_metadata_line(metadata_text, next_paragraph_text):
         media_name = tokens[0]
         page_number = tokens[1]
     else:
-        # fallback to old logic
         media_name = tokens[0]
         page_number = ''
-    # 處理 next_paragraph
     body = remove_reporter_phrases(next_paragraph_text.strip())
     short_media_name = get_short_media_name(media_name)
-    # 格式化
+
+    suffix = '及多份報章' if has_placeholder else ''
     page_label = f" {page_number}" if page_number else ""
-    transformed = f"{short_media_name}{page_label}：{body}"
+
+    # 插入suffix
+    transformed = f"{short_media_name}{suffix}{page_label}：{body}"
     return transformed
 
-    
 
 def get_short_media_name(full_media_name):
     """
