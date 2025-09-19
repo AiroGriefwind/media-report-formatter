@@ -35,8 +35,6 @@ class FirebaseLogger:
         if "firebase" in st.secrets:
             svc_dict = dict(st.secrets["firebase"]["service_account"])
             bucket = st.secrets.get("firebase", {}).get("storage_bucket") or f"{svc_dict['project_id']}.appspot.com"
-            #st log for debugging bucket value
-            st.write(f"Firebase bucket: {bucket}")
 
             db_url = st.secrets["firebase"]["database_url"]  # Ensure you have this in secrets.toml
 
