@@ -125,20 +125,16 @@ def transform_metadata_line(metadata_text, next_paragraph_text):
     if len(tokens) >= 2:
         media_name = tokens[0]
         page_number = tokens[1]
-        # （可選：欄類 e.g. 國際新聞）
-        section = ' '.join(tokens[2:]) if len(tokens) > 2 else ''
     else:
         # fallback to old logic
         media_name = tokens[0]
         page_number = ''
-        section = ''
     # 處理 next_paragraph
     body = remove_reporter_phrases(next_paragraph_text.strip())
     short_media_name = get_short_media_name(media_name)
     # 格式化
     page_label = f" {page_number}" if page_number else ""
-    section_label = f" {section}" if section else ""
-    transformed = f"{short_media_name}{page_label}{section_label}：{body}"
+    transformed = f"{short_media_name}{page_label}：{body}"
     return transformed
 
     
