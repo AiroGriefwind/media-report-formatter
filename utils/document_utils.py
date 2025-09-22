@@ -801,16 +801,21 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
     previous_was_content = False
     last_article_idx = -1
     for idx, (content_type, content_data) in enumerate(all_content):
-        if content_type == 'other':
-            if content_data['type'] == 'section_header':
-                if (is_monday_mode and sunday_date and content_data['section'] == 'international'):
-                    add_monday_notice(new_doc, sunday_date)
-                add_section_header_to_doc(new_doc, content_data['text'])
-            else:
-                clean_text = remove_reporter_phrases(content_data['text'])
-                clean_text = remove_inline_figure_table_markers(clean_text)
-                p = new_doc.add_paragraph(clean_text)
-                format_content_paragraph(p)
+        if content_type == 'other' and content_data['type'] == 'section_header':
+            # Get both the section label (used for matching) and the actual displayed section text
+            section_label = content_data.get('section', '')
+            section_text = content_data.get('text', '')
+            # --- Monday Notice Logic: Trigger ONLY before 國際新聞 ---
+            if is_monday_mode and sunday_date and (
+                section_label == 'international' or '國際新聞' in section_text):
+                add_monday_notice(new_doc, sunday_date)
+            add_section_header_to_doc(new_doc, section_text)
+            previous_was_content = False  # new section break, clear spacing flag
+        elif content_type == 'other':
+            clean_text = remove_reporter_phrases(content_data['text'])
+            clean_text = remove_inline_figure_table_markers(clean_text)
+            p = new_doc.add_paragraph(clean_text)
+            format_content_paragraph(p)
             previous_was_content = True
         elif content_type == 'article':
             content_data['text'] = remove_reporter_phrases(content_data['text'])
@@ -818,6 +823,7 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
             add_article_to_document(new_doc, content_data, previous_was_content)
             previous_was_content = True
             last_article_idx = idx
+
 
     if last_article_idx != -1:
         add_end_marker(new_doc)
