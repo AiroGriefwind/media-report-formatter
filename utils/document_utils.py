@@ -804,8 +804,8 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
     st.write("Check: ismondaymode=", is_monday_mode, "sundaydate=", sunday_date)
     for idx, (content_type, content_data) in enumerate(all_content):
         # Debug print
-        st.write(f"Processing idx={idx}, type={content_type}, data={content_data}")
-        if content_type == 'other' and content_data['type'] == 'section_header':
+        #st.write(f"Processing idx={idx}, type={content_type}, data={content_data}")
+        if content_type == 'other' and content_data['text'] == '國際新聞':
             section_label = content_data.get('section', '')
             section_text = content_data.get('text', '')
             
