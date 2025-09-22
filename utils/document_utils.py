@@ -754,6 +754,7 @@ def extract_document_structure(doc_path, json_output_path=None, is_monday_mode=F
 
 def rebuild_document_from_structure(doc_path, structure_json_path=None, output_path=None, is_monday_mode=False, sunday_date=None):
     """Rebuild document from extracted structure"""
+
     if structure_json_path is None:
         structure_json_path = doc_path.replace('.docx', '_structure.json')
     if output_path is None:
@@ -806,7 +807,7 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
             section_text = content_data.get('text', '')
             
             # Debug print
-            st.write("[DEBUG] idx={idx}, section_label={section_label}, section_text={section_text}")
+            st.write("Check: ismondaymode=", is_monday_mode, "sundaydate=", sunday_date, "sectionlabel=", section_label)
 
             # --- Monday Notice Logic: Trigger ONLY before 國際新聞 ---
             if is_monday_mode and sunday_date and (
