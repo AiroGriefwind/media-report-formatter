@@ -559,6 +559,11 @@ def add_media_group_to_document(new_doc, media_group):
         item_para.add_run(full_width_space * label_length + item['text'])
         format_media_first_line_hanging(item_para, label_length)
 
+def add_monday_notice(new_doc, sunday_date):
+    """Add Monday notice to document"""
+    notice_line = f"是日新聞摘要包括週日重點新聞，除註明{sunday_date}外，其他均是今天新聞"
+    new_doc.add_paragraph(notice_line)
+
 def add_date_line_if_needed(doc, date_str):
     """
     Add date line if needed, safely handling empty documents.
@@ -792,16 +797,14 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
         for article in articles:
             all_content.append(('article', article))
     all_content.sort(key=lambda x: x[1].get('index', x[1].get('start_index', 0)))
-
-    if is_monday_mode and sunday_date:
-        notice_line = f"是日新聞摘要包括週日重點新聞，除註明{sunday_date}外，其他均是今天新聞"
-        new_doc.add_paragraph(notice_line)       
     
     previous_was_content = False
     last_article_idx = -1
     for idx, (content_type, content_data) in enumerate(all_content):
         if content_type == 'other':
             if content_data['type'] == 'section_header':
+                if (is_monday_mode and sunday_date and content_data['section'] == 'international'):
+                    add_monday_notice(new_doc, sunday_date)
                 add_section_header_to_doc(new_doc, content_data['text'])
             else:
                 clean_text = remove_reporter_phrases(content_data['text'])
