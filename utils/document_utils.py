@@ -806,12 +806,12 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
             section_text = content_data.get('text', '')
             
             # Debug print
-            print(f"[DEBUG] idx={idx}, section_label={section_label}, section_text={section_text}")
+            st.write("[DEBUG] idx={idx}, section_label={section_label}, section_text={section_text}")
 
             # --- Monday Notice Logic: Trigger ONLY before 國際新聞 ---
             if is_monday_mode and sunday_date and (
                 section_label == 'international' or '國際新聞' in section_text):
-                print(f"[DEBUG] >>> Adding Monday notice before 國際新聞 at idx={idx}")
+                st.write("[DEBUG] >>> Adding Monday notice before 國際新聞 at idx={idx}")
                 add_monday_notice(new_doc, sunday_date)
             add_section_header_to_doc(new_doc, section_text)
             previous_was_content = False
