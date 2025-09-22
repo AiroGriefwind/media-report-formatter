@@ -801,6 +801,7 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
     
     previous_was_content = False
     last_article_idx = -1
+    st.write("Check: ismondaymode=", is_monday_mode, "sundaydate=", sunday_date)
     for idx, (content_type, content_data) in enumerate(all_content):
         if content_type == 'other' and content_data['type'] == 'section_header':
             section_label = content_data.get('section', '')
