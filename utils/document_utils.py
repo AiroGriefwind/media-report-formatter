@@ -802,15 +802,19 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
     last_article_idx = -1
     for idx, (content_type, content_data) in enumerate(all_content):
         if content_type == 'other' and content_data['type'] == 'section_header':
-            # Get both the section label (used for matching) and the actual displayed section text
             section_label = content_data.get('section', '')
             section_text = content_data.get('text', '')
+            
+            # Debug print
+            print(f"[DEBUG] idx={idx}, section_label={section_label}, section_text={section_text}")
+
             # --- Monday Notice Logic: Trigger ONLY before 國際新聞 ---
             if is_monday_mode and sunday_date and (
                 section_label == 'international' or '國際新聞' in section_text):
+                print(f"[DEBUG] >>> Adding Monday notice before 國際新聞 at idx={idx}")
                 add_monday_notice(new_doc, sunday_date)
             add_section_header_to_doc(new_doc, section_text)
-            previous_was_content = False  # new section break, clear spacing flag
+            previous_was_content = False
         elif content_type == 'other':
             clean_text = remove_reporter_phrases(content_data['text'])
             clean_text = remove_inline_figure_table_markers(clean_text)
