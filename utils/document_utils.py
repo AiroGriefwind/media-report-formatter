@@ -781,12 +781,6 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
                     group['clean_name'] = f"{sunday_date} {group['clean_name']}"
             add_media_group_to_document(new_doc, editorial_groups[name])
 
-    
-    if is_monday_mode and sunday_date:
-        notice_line = f"是日新聞摘要包括週日重點新聞，除註明{sunday_date}外，其他均是今天新聞"
-        new_doc.add_paragraph(notice_line)    
-
-
     all_content = []
     for content in structure['other_content']:
         if content['type'] == 'section_header' and content['section'] == 'editorial':
@@ -798,6 +792,10 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
         for article in articles:
             all_content.append(('article', article))
     all_content.sort(key=lambda x: x[1].get('index', x[1].get('start_index', 0)))
+
+    if is_monday_mode and sunday_date:
+        notice_line = f"是日新聞摘要包括週日重點新聞，除註明{sunday_date}外，其他均是今天新聞"
+        new_doc.add_paragraph(notice_line)       
     
     previous_was_content = False
     last_article_idx = -1
