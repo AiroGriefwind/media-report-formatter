@@ -16,6 +16,10 @@ def render_document_formatting_tab():
     st.header("Document Formatting")
     st.markdown("Upload your Word document to get it formatted automatically")
 
+     # Hardcoded Monday mode and Sunday date for temporary use
+    is_monday_mode = True
+    sunday_date = "20250921"
+
     # Initialize Firebase logger for document processing
     logger = ensure_logger(st, run_context="document_formatting")
 
@@ -41,11 +45,11 @@ def render_document_formatting_tab():
 
             progress.progress(25, text="Extracting document structure...")
             logger.info("Extracting document structure")
-            structure = extract_document_structure(tmp_file_path)
+            structure = extract_document_structure(tmp_file_path, is_monday_mode=is_monday_mode, sunday_date=sunday_date)
 
             progress.progress(50, text="Rebuilding document from structure...")
             logger.info("Rebuilding document from structure")
-            formatted_file = rebuild_document_from_structure(tmp_file_path)
+            formatted_file = rebuild_document_from_structure(tmp_file_path, is_monday_mode=is_monday_mode, sunday_date=sunday_date)
 
             progress.progress(75, text="Applying headers and footers...")
             logger.info("Applying headers and footers")

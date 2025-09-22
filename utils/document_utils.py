@@ -591,7 +591,7 @@ def add_end_marker(doc):
 # MAIN DOCUMENT PROCESSING FUNCTIONS
 # =============================================================================
 
-def extract_document_structure(doc_path, json_output_path=None):
+def extract_document_structure(doc_path, json_output_path=None, is_monday_mode=False, sunday_date=None):
     """
     Extracts structure using state-based logic with Chinese conversion.
     """
@@ -655,19 +655,28 @@ def extract_document_structure(doc_path, json_output_path=None):
                 next_paragraph_text = sanitized_paragraphs[i + 1].strip()
                 next_content = convert_to_traditional_chinese(next_paragraph_text)
                 next_content = apply_gatekeeper_corrections(next_content)
-            # Transform the metadata line with the *lead* of the next paragraph
+            
+            # Extract date for Sunday detection
+            date_str = original_text.split('|')[-1].strip().replace("-", "")
+            is_sunday_article = is_monday_mode and (date_str == sunday_date)
+            
             text = transform_metadata_line(text, next_content)
-            skip_next = True   # Set flag to skip the next paragraph
+            skip_next = True
 
-        section_type = detect_section_type(text)
-        if section_type:
-            current_section = section_type
-            in_editorial = (section_type == 'editorial')
-            is_expecting_title = not in_editorial
-            title_cooldown_counter = 0
-            if section_type not in structure['sections']:
-                structure['sections'][section_type] = []
-            structure['other_content'].append({'index': i, 'text': text, 'type': 'section_header', 'section': section_type})
+            # Now when creating media info or article, store this flag
+            # For example:
+            media_info = detect_editorial_media_line(text)
+            if media_info:
+                # create dict for current_media_group with is_sunday_article stored
+                current_media_group = {
+                    'clean_name': media_info['clean_name'], 
+                    'original_name': media_info['full_name'], 
+                    'start_index': i, 
+                    'first_item': next_content, 
+                    'additional_items': [],
+                    'is_sunday_article': is_sunday_article  # store flag here
+                }
+                structure['editorial_media_groups'].append(current_media_group)
             continue
         
         if not text: continue
@@ -738,7 +747,7 @@ def extract_document_structure(doc_path, json_output_path=None):
     
     return structure
 
-def rebuild_document_from_structure(doc_path, structure_json_path=None, output_path=None):
+def rebuild_document_from_structure(doc_path, structure_json_path=None, output_path=None, is_monday_mode=False, sunday_date=None):
     """Rebuild document from extracted structure"""
     if structure_json_path is None:
         structure_json_path = doc_path.replace('.docx', '_structure.json')
@@ -765,12 +774,17 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
     editorial_groups = {g['clean_name']: g for g in structure['editorial_media_groups']}
     for name in EDITORIAL_MEDIA_ORDER:
         if name in editorial_groups:
-            editorial_groups[name]['first_item'] = remove_reporter_phrases(editorial_groups[name]['first_item'])
-            editorial_groups[name]['first_item'] = remove_inline_figure_table_markers(editorial_groups[name]['first_item'])
-            for item in editorial_groups[name]['additional_items']:
-                item['text'] = remove_reporter_phrases(item['text'])
-                item['text'] = remove_inline_figure_table_markers(item['text'])
+            if is_monday_mode and sunday_date:
+                group = editorial_groups[name]
+                # Check if the media group is Sunday news by a stored flag (e.g. `is_sunday_article` from extraction)
+                if group.get('is_sunday_article', False):
+                    group['clean_name'] = f"{sunday_date} {group['clean_name']}"
             add_media_group_to_document(new_doc, editorial_groups[name])
+
+    
+    if is_monday_mode and sunday_date:
+        notice_line = f"是日新聞摘要包括週日重點新聞，除註明{sunday_date}外，其他均是今天新聞"
+        new_doc.add_paragraph(notice_line)    
 
 
     all_content = []
