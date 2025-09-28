@@ -113,6 +113,7 @@ def setup_webdriver(**kwargs):
             st_module.write("Using Selenium Manager for automatic driver management...")
             
         driver = webdriver.Chrome(options=options)
+        driver.set_window_size(1200, 800)
         driver.get(WISERS_URL)
         
         if st_module:
