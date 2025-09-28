@@ -655,6 +655,8 @@ def extract_document_structure(doc_path, json_output_path=None, is_monday_mode=F
                 continue  # Skip this subtitle
 
         if is_new_metadata_format(original_text):
+            #Debug Log
+            st.write("Metadata line detected:", original_text)
             next_content = ""
             if i + 1 < num_paragraphs:
                 next_paragraph_text = sanitized_paragraphs[i + 1].strip()
