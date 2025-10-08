@@ -654,21 +654,46 @@ def extract_document_structure(doc_path, json_output_path=None, is_monday_mode=F
                 })
                 continue  # Skip this subtitle
 
-        if is_new_metadata_format(original_text):
-            #Debug Log
-            st.write("Metadata line detected:", original_text)
-            next_content = ""
-            if i + 1 < num_paragraphs:
-                next_paragraph_text = sanitized_paragraphs[i + 1].strip()
-                next_content = convert_to_traditional_chinese(next_paragraph_text)
-                next_content = apply_gatekeeper_corrections(next_content)
-            
-            # Extract date for Sunday detection
-            date_str = original_text.split('|')[-1].strip().replace("-", "")
-            is_sunday_article = is_monday_mode and (date_str == sunday_date)
-            
-            text = transform_metadata_line(text, next_content)
-            skip_next = True
+            if is_new_metadata_format(original_text):
+                # Debug Log
+                st.write("Metadata line detected:", original_text)
+                next_content = ""
+                if i + 1 < num_paragraphs:
+                    next_paragraph_text = sanitized_paragraphs[i + 1].strip()
+                    next_content = convert_to_traditional_chinese(next_paragraph_text)
+                    next_content = apply_gatekeeper_corrections(next_content)
+
+                date_str = original_text.split('|')[-1].strip().replace("-", "")
+                is_sunday_article = is_monday_mode and (date_str == sunday_date)
+
+                if is_monday_mode:
+                    # --- Monday mode: treat metadata and lead paragraph as separate lines ---
+                    structure['other_content'].append({
+                        'index': i,
+                        'text': transform_metadata_line(text, next_content),
+                        'type': 'metadata_line',
+                        'section': current_section
+                    })
+                    # Handle first paragraph too (as content, *unless* you want to merge as in transform_metadata_line)
+                    if i + 1 < num_paragraphs:
+                        structure['other_content'].append({
+                            'index': i + 1,
+                            'text': next_content,
+                            'type': 'content',
+                            'section': current_section
+                        })
+                    skip_next = True  # skip that paragraph—since you manually added it above
+                else:
+                    # --- non-Monday (default) behaviour: old skip logic ---
+                    text = transform_metadata_line(text, next_content)
+                    structure['other_content'].append({
+                        'index': i,
+                        'text': text,
+                        'type': 'metadata_line',
+                        'section': current_section
+                    })
+                    skip_next = True
+
 
             # Now when creating media info or article, store this flag
             # For example:
