@@ -622,6 +622,7 @@ def extract_document_structure(doc_path, json_output_path=None, is_monday_mode=F
     skip_next = False
     for i, paragraph in enumerate(sanitized_paragraphs):
         next_content = ""
+        
         if skip_next:
             skip_next = False
             continue  # Skip the paragraph after the metadata line
@@ -654,7 +655,8 @@ def extract_document_structure(doc_path, json_output_path=None, is_monday_mode=F
                     'section': current_section
                 })
                 continue  # Skip this subtitle
-
+            date_str = original_text.split('|')[-1].strip().replace("-", "")
+            is_sunday_article = is_monday_mode and (date_str == sunday_date)
             if is_new_metadata_format(original_text):
                 st.write("Metadata line detected:", original_text)
 
@@ -662,9 +664,6 @@ def extract_document_structure(doc_path, json_output_path=None, is_monday_mode=F
                     next_paragraph_text = sanitized_paragraphs[i + 1].strip()
                     next_content = convert_to_traditional_chinese(next_paragraph_text)
                     next_content = apply_gatekeeper_corrections(next_content)
-
-                date_str = original_text.split('|')[-1].strip().replace("-", "")
-                is_sunday_article = is_monday_mode and (date_str == sunday_date)
 
                 if is_monday_mode:
                     # --- Monday mode: treat metadata and lead paragraph as separate lines ---
