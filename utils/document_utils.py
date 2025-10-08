@@ -621,6 +621,7 @@ def extract_document_structure(doc_path, json_output_path=None, is_monday_mode=F
     # add paragraph while skipping first paragraph after metadata
     skip_next = False
     for i, paragraph in enumerate(sanitized_paragraphs):
+        next_content = ""
         if skip_next:
             skip_next = False
             continue  # Skip the paragraph after the metadata line
@@ -656,7 +657,7 @@ def extract_document_structure(doc_path, json_output_path=None, is_monday_mode=F
 
             if is_new_metadata_format(original_text):
                 st.write("Metadata line detected:", original_text)
-                next_content = ""  # Safety: always defined
+
                 if i + 1 < num_paragraphs:
                     next_paragraph_text = sanitized_paragraphs[i + 1].strip()
                     next_content = convert_to_traditional_chinese(next_paragraph_text)
