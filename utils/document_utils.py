@@ -155,7 +155,7 @@ def transform_metadata_line(metadata_text, next_paragraph_text, monday_mode=Fals
             break
     
     #Debug log for all variables involved in Monday mode
-    st.write(f"Debug: metadata_text='{metadata_text}', next_paragraph_text='{next_paragraph_text}', monday_mode={monday_mode}, sunday_date={sunday_date}, date_match={date_match}, short_media_name='{short_media_name}', page_label='{page_label}', body='{body}'")
+    #st.write(f"Debug: metadata_text='{metadata_text}', next_paragraph_text='{next_paragraph_text}', monday_mode={monday_mode}, sunday_date={sunday_date}, date_match={date_match}, short_media_name='{short_media_name}', page_label='{page_label}', body='{body}'")
 
     # If Monday mode is ON and date matches target Sunday, prefix
     if monday_mode and sunday_date and date_match == sunday_date:

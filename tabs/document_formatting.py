@@ -1,6 +1,7 @@
 import streamlit as st
 import tempfile
 import os
+import re
 import pytz
 from datetime import datetime, timedelta
 
@@ -30,7 +31,8 @@ def render_document_formatting_tab():
     sunday_date = None
     if monday_mode:
         default_sunday = (datetime.now(pytz.timezone('Asia/Hong_Kong')).date() - timedelta(days=1)).strftime("%Y%m%d")
-        sunday_date = st.text_input("Date of Previous Sunday", value=default_sunday, help="e.g., 20250914")
+        sunday_date = st.text_input("Date of Previous Sunday (YYYYMMDD)", value=default_sunday, help="e.g., 20250914")
+        sunday_date = re.sub(r'[^0-9]', '', sunday_date)
 
     # Initialize Firebase logger for document processing
     logger = ensure_logger(st, run_context="document_formatting")
