@@ -12,34 +12,12 @@ from utils.document_utils import (
 from utils.firebase_logging import ensure_logger
 from docx import Document
 
-import pytz
-from datetime import datetime, timedelta
-
-def is_today_monday_hk():
-    tz_hk = pytz.timezone('Asia/Hong_Kong')
-    now_hk = datetime.now(tz_hk)
-    return now_hk.weekday() == 0  # Monday is 0
-
-def get_yesterday_date_str_hk():
-    tz_hk = pytz.timezone('Asia/Hong_Kong')
-    now_hk = datetime.now(tz_hk)
-    yesterday = now_hk - timedelta(days=1)
-    return yesterday.strftime('%Y%m%d')
-
 def render_document_formatting_tab():
     st.header("Document Formatting")
     st.markdown("Upload your Word document to get it formatted automatically")
 
     # Initialize Firebase logger for document processing
     logger = ensure_logger(st, run_context="document_formatting")
-
-    # Auto-detect Monday in HK timezone
-    auto_is_monday_mode = is_today_monday_hk()
-    auto_sunday_date = get_yesterday_date_str_hk() if auto_is_monday_mode else ""
-
-    # Add checkbox and text input for manual override
-    is_monday_mode = st.checkbox("Today is Monday", value=auto_is_monday_mode)
-    sunday_date = st.text_input("Sunday date (yyyymmdd)", value=auto_sunday_date if is_monday_mode else "")
 
     uploaded_file = st.file_uploader("Choose a Word document", type=['docx'])
 
@@ -63,11 +41,11 @@ def render_document_formatting_tab():
 
             progress.progress(25, text="Extracting document structure...")
             logger.info("Extracting document structure")
-            structure = extract_document_structure(tmp_file_path, is_monday_mode=is_monday_mode, sunday_date=sunday_date)
+            structure = extract_document_structure(tmp_file_path)
 
             progress.progress(50, text="Rebuilding document from structure...")
             logger.info("Rebuilding document from structure")
-            formatted_file = rebuild_document_from_structure(tmp_file_path, is_monday_mode=is_monday_mode, sunday_date=sunday_date)
+            formatted_file = rebuild_document_from_structure(tmp_file_path)
 
             progress.progress(75, text="Applying headers and footers...")
             logger.info("Applying headers and footers")

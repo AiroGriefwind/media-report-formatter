@@ -559,11 +559,6 @@ def add_media_group_to_document(new_doc, media_group):
         item_para.add_run(full_width_space * label_length + item['text'])
         format_media_first_line_hanging(item_para, label_length)
 
-def add_monday_notice(new_doc, sunday_date):
-    """Add Monday notice to document"""
-    notice_line = f"是日新聞摘要包括週日重點新聞，除註明{sunday_date}外，其他均是今天新聞"
-    new_doc.add_paragraph(notice_line)
-
 def add_date_line_if_needed(doc, date_str):
     """
     Add date line if needed, safely handling empty documents.
@@ -596,7 +591,7 @@ def add_end_marker(doc):
 # MAIN DOCUMENT PROCESSING FUNCTIONS
 # =============================================================================
 
-def extract_document_structure(doc_path, json_output_path=None, is_monday_mode=False, sunday_date=None):
+def extract_document_structure(doc_path, json_output_path=None):
     """
     Extracts structure using state-based logic with Chinese conversion.
     """
@@ -621,8 +616,6 @@ def extract_document_structure(doc_path, json_output_path=None, is_monday_mode=F
     # add paragraph while skipping first paragraph after metadata
     skip_next = False
     for i, paragraph in enumerate(sanitized_paragraphs):
-        next_content = ""
-        
         if skip_next:
             skip_next = False
             continue  # Skip the paragraph after the metadata line
@@ -655,59 +648,26 @@ def extract_document_structure(doc_path, json_output_path=None, is_monday_mode=F
                     'section': current_section
                 })
                 continue  # Skip this subtitle
-            date_str = original_text.split('|')[-1].strip().replace("-", "")
-            is_sunday_article = is_monday_mode and (date_str == sunday_date)
-            if is_new_metadata_format(original_text):
-                st.write("Metadata line detected:", original_text)
 
-                if i + 1 < num_paragraphs:
-                    next_paragraph_text = sanitized_paragraphs[i + 1].strip()
-                    next_content = convert_to_traditional_chinese(next_paragraph_text)
-                    next_content = apply_gatekeeper_corrections(next_content)
+        if is_new_metadata_format(original_text):
+            next_content = ""
+            if i + 1 < num_paragraphs:
+                next_paragraph_text = sanitized_paragraphs[i + 1].strip()
+                next_content = convert_to_traditional_chinese(next_paragraph_text)
+                next_content = apply_gatekeeper_corrections(next_content)
+            # Transform the metadata line with the *lead* of the next paragraph
+            text = transform_metadata_line(text, next_content)
+            skip_next = True   # Set flag to skip the next paragraph
 
-                if is_monday_mode:
-                    # --- Monday mode: treat metadata and lead paragraph as separate lines ---
-                    structure['other_content'].append({
-                        'index': i,
-                        'text': transform_metadata_line(text, next_content),
-                        'type': 'metadata_line',
-                        'section': current_section
-                    })
-                    # Handle first paragraph too (as content, *unless* you want to merge as in transform_metadata_line)
-                    if i + 1 < num_paragraphs:
-                        structure['other_content'].append({
-                            'index': i + 1,
-                            'text': next_content,
-                            'type': 'content',
-                            'section': current_section
-                        })
-                    skip_next = True  # skip that paragraph—since you manually added it above
-                else:
-                    # --- non-Monday (default) behaviour: old skip logic ---
-                    text = transform_metadata_line(text, next_content)
-                    structure['other_content'].append({
-                        'index': i,
-                        'text': text,
-                        'type': 'metadata_line',
-                        'section': current_section
-                    })
-                    skip_next = True
-
-
-            # Now when creating media info or article, store this flag
-            # For example:
-            media_info = detect_editorial_media_line(text)
-            if media_info:
-                # create dict for current_media_group with is_sunday_article stored
-                current_media_group = {
-                    'clean_name': media_info['clean_name'], 
-                    'original_name': media_info['full_name'], 
-                    'start_index': i, 
-                    'first_item': next_content, 
-                    'additional_items': [],
-                    'is_sunday_article': is_sunday_article  # store flag here
-                }
-                structure['editorial_media_groups'].append(current_media_group)
+        section_type = detect_section_type(text)
+        if section_type:
+            current_section = section_type
+            in_editorial = (section_type == 'editorial')
+            is_expecting_title = not in_editorial
+            title_cooldown_counter = 0
+            if section_type not in structure['sections']:
+                structure['sections'][section_type] = []
+            structure['other_content'].append({'index': i, 'text': text, 'type': 'section_header', 'section': section_type})
             continue
         
         if not text: continue
@@ -778,9 +738,8 @@ def extract_document_structure(doc_path, json_output_path=None, is_monday_mode=F
     
     return structure
 
-def rebuild_document_from_structure(doc_path, structure_json_path=None, output_path=None, is_monday_mode=False, sunday_date=None):
+def rebuild_document_from_structure(doc_path, structure_json_path=None, output_path=None):
     """Rebuild document from extracted structure"""
-
     if structure_json_path is None:
         structure_json_path = doc_path.replace('.docx', '_structure.json')
     if output_path is None:
@@ -806,12 +765,13 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
     editorial_groups = {g['clean_name']: g for g in structure['editorial_media_groups']}
     for name in EDITORIAL_MEDIA_ORDER:
         if name in editorial_groups:
-            if is_monday_mode and sunday_date:
-                group = editorial_groups[name]
-                # Check if the media group is Sunday news by a stored flag (e.g. `is_sunday_article` from extraction)
-                if group.get('is_sunday_article', False):
-                    group['clean_name'] = f"{sunday_date} {group['clean_name']}"
+            editorial_groups[name]['first_item'] = remove_reporter_phrases(editorial_groups[name]['first_item'])
+            editorial_groups[name]['first_item'] = remove_inline_figure_table_markers(editorial_groups[name]['first_item'])
+            for item in editorial_groups[name]['additional_items']:
+                item['text'] = remove_reporter_phrases(item['text'])
+                item['text'] = remove_inline_figure_table_markers(item['text'])
             add_media_group_to_document(new_doc, editorial_groups[name])
+
 
     all_content = []
     for content in structure['other_content']:
@@ -827,29 +787,15 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
     
     previous_was_content = False
     last_article_idx = -1
-    st.write("Check: ismondaymode=", is_monday_mode, "sundaydate=", sunday_date)
     for idx, (content_type, content_data) in enumerate(all_content):
-        # Debug print
-        #st.write(f"Processing idx={idx}, type={content_type}, data={content_data}")
-        if content_type == 'other' and content_data['text'] == '國際新聞':
-            section_label = content_data.get('section', '')
-            section_text = content_data.get('text', '')
-            
-            # Debug print
-            st.write("Check: ismondaymode=", is_monday_mode, "sundaydate=", sunday_date, "sectionlabel=", section_label)
-
-            # --- Monday Notice Logic: Trigger ONLY before 國際新聞 ---
-            if is_monday_mode and sunday_date and (
-                section_label == 'international' or '國際新聞' in section_text):
-                st.write("[DEBUG] >>> Adding Monday notice before 國際新聞 at idx={idx}")
-                add_monday_notice(new_doc, sunday_date)
-            add_section_header_to_doc(new_doc, section_text)
-            previous_was_content = False
-        elif content_type == 'other':
-            clean_text = remove_reporter_phrases(content_data['text'])
-            clean_text = remove_inline_figure_table_markers(clean_text)
-            p = new_doc.add_paragraph(clean_text)
-            format_content_paragraph(p)
+        if content_type == 'other':
+            if content_data['type'] == 'section_header':
+                add_section_header_to_doc(new_doc, content_data['text'])
+            else:
+                clean_text = remove_reporter_phrases(content_data['text'])
+                clean_text = remove_inline_figure_table_markers(clean_text)
+                p = new_doc.add_paragraph(clean_text)
+                format_content_paragraph(p)
             previous_was_content = True
         elif content_type == 'article':
             content_data['text'] = remove_reporter_phrases(content_data['text'])
@@ -857,7 +803,6 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
             add_article_to_document(new_doc, content_data, previous_was_content)
             previous_was_content = True
             last_article_idx = idx
-
 
     if last_article_idx != -1:
         add_end_marker(new_doc)
