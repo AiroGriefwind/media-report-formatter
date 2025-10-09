@@ -1,6 +1,9 @@
 import streamlit as st
 import tempfile
 import os
+import pytz
+from datetime import datetime, timedelta
+
 from utils.document_utils import (
     extract_document_structure, 
     rebuild_document_from_structure,
@@ -12,9 +15,22 @@ from utils.document_utils import (
 from utils.firebase_logging import ensure_logger
 from docx import Document
 
+def is_monday_in_hk():
+    tz = pytz.timezone('Asia/Hong_Kong')
+    today_hk = datetime.now(tz).date()
+    return today_hk.weekday() == 0  # 0 is Monday
+
 def render_document_formatting_tab():
     st.header("Document Formatting")
     st.markdown("Upload your Word document to get it formatted automatically")
+    
+    # === Detect Monday in Hong Kong automatically ===
+    auto_monday = is_monday_in_hk()
+    monday_mode = st.checkbox("Today is Monday", value=auto_monday)
+    sunday_date = None
+    if monday_mode:
+        default_sunday = (datetime.now(pytz.timezone('Asia/Hong_Kong')).date() - timedelta(days=1)).strftime("%Y%m%d")
+        sunday_date = st.text_input("Date of Previous Sunday", value=default_sunday, help="e.g., 20250914")
 
     # Initialize Firebase logger for document processing
     logger = ensure_logger(st, run_context="document_formatting")
@@ -41,11 +57,11 @@ def render_document_formatting_tab():
 
             progress.progress(25, text="Extracting document structure...")
             logger.info("Extracting document structure")
-            structure = extract_document_structure(tmp_file_path)
+            structure = extract_document_structure(tmp_file_path, monday_mode=monday_mode, sunday_date=sunday_date)
 
             progress.progress(50, text="Rebuilding document from structure...")
             logger.info("Rebuilding document from structure")
-            formatted_file = rebuild_document_from_structure(tmp_file_path)
+            formatted_file = rebuild_document_from_structure(tmp_file_path, monday_mode=monday_mode, sunday_date=sunday_date)
 
             progress.progress(75, text="Applying headers and footers...")
             logger.info("Applying headers and footers")
