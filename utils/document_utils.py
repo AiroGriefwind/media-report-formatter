@@ -591,7 +591,7 @@ def add_end_marker(doc):
 # MAIN DOCUMENT PROCESSING FUNCTIONS
 # =============================================================================
 
-def extract_document_structure(doc_path, json_output_path=None):
+def extract_document_structure(doc_path, json_output_path=None, monday_mode=False, sunday_date=None):
     """
     Extracts structure using state-based logic with Chinese conversion.
     """
