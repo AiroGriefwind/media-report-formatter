@@ -110,7 +110,7 @@ def is_new_metadata_format(text):
     
     return True
 
-def transform_metadata_line(metadata_text, next_paragraph_text):
+def transform_metadata_line(metadata_text, next_paragraph_text, monday_mode=False, sunday_date=None):
     if not metadata_text or not next_paragraph_text:
         return metadata_text
 
@@ -142,6 +142,21 @@ def transform_metadata_line(metadata_text, next_paragraph_text):
         short_media_name += '及多份報章'
 
     transformed = f"{short_media_name} {page_label}：{body}".replace('  ', ' ').strip()
+
+    # Look for 8-digit date (YYYY-MM-DD, YYYY/MM/DD, or YYYYMMDD) in metadata
+    date_match = None
+    for part in parts:
+        # Use regex to find a date (match YYYYMMDD)
+        match = re.search(r'20\d{6}', part)
+        if match:
+            date_match = match.group(0)
+            break
+    
+    # If Monday mode is ON and date matches target Sunday, prefix
+    if monday_mode and sunday_date and date_match == sunday_date:
+        transformed = f"{sunday_date} {short_media_name} {page_label}：{body}".replace('  ', ' ').strip()
+        return transformed
+
     return transformed
 
 
@@ -656,7 +671,7 @@ def extract_document_structure(doc_path, json_output_path=None, monday_mode=Fals
                 next_content = convert_to_traditional_chinese(next_paragraph_text)
                 next_content = apply_gatekeeper_corrections(next_content)
             # Transform the metadata line with the *lead* of the next paragraph
-            text = transform_metadata_line(text, next_content)
+            text = transform_metadata_line(text, next_content, monday_mode=monday_mode, sunday_date=sunday_date)
             skip_next = True   # Set flag to skip the next paragraph
 
         section_type = detect_section_type(text)
