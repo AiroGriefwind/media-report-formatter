@@ -146,10 +146,12 @@ def transform_metadata_line(metadata_text, next_paragraph_text, monday_mode=Fals
     # Look for 8-digit date (YYYY-MM-DD, YYYY/MM/DD, or YYYYMMDD) in metadata
     date_match = None
     for part in parts:
-        # Use regex to find a date (match YYYYMMDD)
-        match = re.search(r'20\d{6}', part)
+        # Match YYYY-MM-DD or YYYYMMDD or YYYY/MM/DD
+        match = re.search(r'20\d{2}[-/]*\d{2}[-/]*\d{2}', part)
         if match:
-            date_match = match.group(0)
+            date_raw = match.group(0)
+            # Normalize to YYYYMMDD (remove any - or /)
+            date_match = re.sub(r'[^0-9]', '', date_raw)
             break
     
     #Debug log for all variables involved in Monday mode
