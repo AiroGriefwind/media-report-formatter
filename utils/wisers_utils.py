@@ -21,6 +21,8 @@ from twocaptcha import TwoCaptcha
 
 from .config import WISERS_URL
 
+from utils.firebase_logging import get_logger
+
 # =============================================================================
 # RETRY DECORATOR
 # =============================================================================
@@ -54,6 +56,12 @@ def retry_step(func):
                             file_name=f"{func.__name__}_attempt{trial}_screenshot.png",
                             mime="image/png"
                         )
+                        fb = get_logger(st)
+                        if fb:
+                            log_dir = f"./logs/{fb.run_id}/"
+                            fb.upload_scrcap_to_firebase(img_bytes, log_dir, name_hint=f"{func.__name__}_attempt{trial}")
+
+
                     except Exception as screencap_err:
                         if st:
                             st.warning(f"Screencap failed: {screencap_err}")

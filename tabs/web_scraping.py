@@ -6,6 +6,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from datetime import datetime
 from selenium.webdriver.common.by import By
 
+
+# Firebase logging
+from utils.firebase_logging import ensure_logger, get_logger
+
 # Fix rectangle characters in Streamlit： Ensure UTF-8 encoding for subprocesses
 import os
 os.environ["PYTHONIOENCODING"] = "utf-8"
@@ -37,6 +41,9 @@ from utils.web_scraping_utils import (
 
 def render_web_scraping_tab():
     """Render the web scraping and report generation tab"""
+
+    ensure_logger(st, run_context="tab_webscraping")
+
     st.header("Web Scraping and Report Generation")
     st.markdown("Scrape articles by specified authors and newspaper editorials, then generate a combined Word report.")
     
@@ -44,11 +51,11 @@ def render_web_scraping_tab():
         col1, col2 = st.columns(2)
         
         with col1:
-            group_name, username, password = _get_credentials()
+            group_name, username, password, bucket = _get_credentials()
             
         with col2:
             api_key = _get_api_key()
-    
+
     authors_input = st.text_area(
         "Authors to Search (one per line)",
         value="李先知\n余錦賢\n傅流螢\n黄锦辉",
@@ -62,6 +69,10 @@ def render_web_scraping_tab():
     keep_browser_open = st.sidebar.checkbox("Keep browser open after script finishes/fails")
     
     if st.button("🚀 Start Scraping and Generate Report", type="primary"):
+        ensure_logger(st, run_context={
+            "tab": "web_scraping",
+            "headless": bool(run_headless),
+        })
         _handle_scraping_process(
             group_name, username, password, api_key,
             authors_input, run_headless, keep_browser_open
@@ -73,15 +84,18 @@ def _get_credentials():
         group_name = st.secrets["wisers"]["group_name"]
         username = st.secrets["wisers"]["username"] 
         password = st.secrets["wisers"]["password"]
+        svc_dict = dict(st.secrets["firebase"]["service_account"])
+        bucket = st.secrets.get("firebase", {}).get("storage_bucket") or f"{svc_dict['project_id']}.appspot.com"
         st.success("✅ Credentials loaded from secrets")
-        st.info(f"Group: {group_name}\n\nUsername: {username}\n\nPassword: ****")
-        return group_name, username, password
+        st.info(f"Group: {group_name}\n\nUsername: {username}\n\nPassword: ****\n\nFirebase Bucket: {bucket}")
+        return group_name, username, password, bucket
     except (KeyError, AttributeError, st.errors.StreamlitAPIException):
         st.warning("⚠️ Secrets not found. Please enter credentials manually:")
         group_name = st.text_input("Group Name", value="SPRG1")
         username = st.text_input("Username", placeholder="Enter username")
         password = st.text_input("Password", type="password", placeholder="Enter password")
-        return group_name, username, password
+        bucket = None
+        return group_name, username, password, bucket
 
 def _get_api_key():
     """Helper function to get API key from secrets or manual input"""
@@ -95,15 +109,22 @@ def _get_api_key():
 
 def _handle_scraping_process(group_name, username, password, api_key, authors_input, run_headless, keep_browser_open):
     """Handle the main scraping process"""
-    if not all([group_name, username, password, api_key]):
-        st.error("❌ Please provide all required credentials and the API key to proceed.")
-        st.stop()
-
+    st.write("DEBUG: handler entered")
+    logger = get_logger(st)
+    st.write("DEBUG: got logger")
+    st.write(f"Credentials: {group_name}, {username}, {password}, {api_key}")
     authors_list = [author.strip() for author in authors_input.split('\n') if author.strip()]
-    if not authors_list:
-        st.error("❌ Please enter at least one author to search.")
+    st.write(f"Authors provided: {authors_list}")
+
+    if not all([group_name, username, password, api_key]):
+        st.error("Please provide all required credentials and the API key to proceed.")
         st.stop()
 
+    if not authors_list:
+        st.error("Please enter at least one author to search.")
+        st.stop()
+
+    st.write("DEBUG: passed all initial checks. About to create progress bar...")
     progress_bar = st.progress(0)
     status_text = st.empty()
     driver = None
@@ -256,7 +277,14 @@ def _handle_scraping_process(group_name, username, password, api_key, authors_in
             if driver:
                 if not keep_browser_open:
                     robust_logout_request(driver, st_module=st)
+                    
+                    log_dir = f"./logs/{logger.run_id}/"
+                    json_fp = logger.export_log_json(log_dir)
+                    gs_url = logger.upload_json_to_firebase(json_fp)
+                    st.info(f"Uploaded combined log JSON to Firebase: {gs_url}")
+
                 else:
                     st.warning("🤖 As requested, the browser window has been left open for inspection.")
         except Exception as cleanup_err:
             st.error(f"Error in cleanup: {cleanup_err}")
+            

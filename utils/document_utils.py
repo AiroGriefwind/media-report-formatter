@@ -23,6 +23,30 @@ from .config import CORRECTION_MAP, MEDIA_NAME_MAPPINGS, EDITORIAL_MEDIA_ORDER, 
 # DOCUMENT FORMATTING FUNCTIONS
 # =============================================================================
 
+def sanitize_doc_paragraphs(doc):
+    """
+    Clean all paragraphs to plain text (like ctrl+shift+v pasted).
+    Removes all formatting, replaces all whitespace variants with normal spaces,
+    and collapses multiple linebreaks or non-printing chars.
+    """
+    sanitized = []
+    for para in doc.paragraphs:
+        # Unify all whitespace chars to a space/newline
+        text = para.text
+        text = text.replace('\u200b', '').replace('\xa0', ' ')  # Remove invisible non-breaking spaces etc.
+        # Replace any other suspicious chars as you encounter
+        # Replace all \r and \n with single newlines
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
+        # Collapse multiple spaces
+        text = re.sub(r'[ \t]+', ' ', text)
+        # Collapse multiple newlines
+        text = re.sub(r'\n+', '\n', text)
+        # Strip leading/trailing whitespace
+        text = text.strip()
+        sanitized.append(text)
+    return sanitized
+
+
 def is_source_citation(text):
     """Check if text is a source citation"""
     if not text: 
@@ -86,58 +110,79 @@ def is_new_metadata_format(text):
     
     return True
 
-def transform_metadata_line(metadata_text, next_paragraph_text):
+def transform_metadata_line(metadata_text, next_paragraph_text, monday_mode=False, sunday_date=None):
     if not metadata_text or not next_paragraph_text:
         return metadata_text
-    # Split parts
+
+    # 檢查多份報章專用標記
+    has_placeholder = "==" in metadata_text
+
+    # Split by |
     parts = metadata_text.split('|')
     if len(parts) < 1:
         return metadata_text
-    next_paragraph_text = remove_reporter_phrases(next_paragraph_text)
-    main_part = parts[0].strip()
-    m = re.match(
-        r'^([\u4e00-\u9fa5A-Za-z（）()]+)\s+([A-Z]?\d+)(==)?(?:\s+[^\s]+)?',
-        main_part
-    )
-    if m:
-        media_name = m.group(1)
-        page_number = m.group(2)
-        has_placeholder = bool(m.group(3))
-        # Try to get short name
-        short_media_name = get_short_media_name(media_name)
-        suffix = '及多份報章' if has_placeholder else ''
-        body = next_paragraph_text.strip()
-        if short_media_name:
-            transformed = f"{short_media_name} {page_number}{suffix}：{body}"
-            return transformed
-        else:
-            # Fallback: pick first 2 words (by whitespace)
-            words = media_name.split()
-            fallback_name = "".join(words[:2]) if len(words) >= 2 else media_name
-            # Grab the rest (everything from first space onward; keep original main_part tokens)
-            after_media = main_part[len(media_name):].strip()
-            fallback_metadata = f"{fallback_name} {after_media}".strip()
-            transformed = f"{fallback_metadata}：{body}"
-            # Log for debug
-            st.write(f"[Fallback triggered] Unrecognized media '{media_name}' => '{fallback_name}'. Used: {transformed}")
-            return transformed
-    # If it doesn't match the normal format, just return as original
-    return metadata_text
+
+    main_part = parts[0].replace('==', '').strip()  # 徹底移除 '=='
+    tokens = main_part.split()
+    # 安全檢查
+    if len(tokens) >= 2:
+        media_name = tokens[0]
+        page_number = tokens[1]
+    else:
+        media_name = tokens[0]
+        page_number = ''
+
+    body = remove_reporter_phrases(next_paragraph_text.strip())
+    short_media_name = get_short_media_name(media_name)
+
+    # 組裝：及多份報章加在page_number後
+    page_label = f"{page_number}{'及多份報章' if has_placeholder and page_number else ''}"
+    # 如沒頁碼直接加在媒體名後（極少見，保底）
+    if has_placeholder and not page_number:
+        short_media_name += '及多份報章'
+
+    transformed = f"{short_media_name} {page_label}：{body}".replace('  ', ' ').strip()
+
+    # Look for 8-digit date (YYYY-MM-DD, YYYY/MM/DD, or YYYYMMDD) in metadata
+    date_match = None
+    for part in parts:
+        # Match YYYY-MM-DD or YYYYMMDD or YYYY/MM/DD
+        match = re.search(r'20\d{2}[-/]*\d{2}[-/]*\d{2}', part)
+        if match:
+            date_raw = match.group(0)
+            # Normalize to YYYYMMDD (remove any - or /)
+            date_match = re.sub(r'[^0-9]', '', date_raw)
+            break
     
+    #Debug log for all variables involved in Monday mode
+    #st.write(f"Debug: metadata_text='{metadata_text}', next_paragraph_text='{next_paragraph_text}', monday_mode={monday_mode}, sunday_date={sunday_date}, date_match={date_match}, short_media_name='{short_media_name}', page_label='{page_label}', body='{body}'")
+
+    # If Monday mode is ON and date matches target Sunday, prefix
+    if monday_mode and sunday_date and date_match == sunday_date:
+        transformed = f"{sunday_date} {short_media_name} {page_label}：{body}".replace('  ', ' ').strip()
+        return transformed
+
+    return transformed
+
+
 
 def get_short_media_name(full_media_name):
-    # Try mapping first
+    """
+    Get short media name from full media name using MEDIA_NAME_MAPPINGS.
+    """
+    # Import here to avoid circular dependency
+    from .config import MEDIA_NAME_MAPPINGS
+
+    # Direct match
     if full_media_name in MEDIA_NAME_MAPPINGS:
         return MEDIA_NAME_MAPPINGS[full_media_name]
-    # Try common patterns
-    for pattern, short in [
-        ('經濟日報', '經濟'), ('明報', '明報'), ('文匯報', '文匯'),
-        ('東方日報', '東方'), ('星島日報', '星島'), ('大公報', '大公'), ('頭條日報', '頭條'),
-    ]:
-        if pattern in full_media_name:
-            return short
-    # Fallback: return None so transform_metadata_line handles it
-    return None
+    # Try first word match
+    first = full_media_name.split()[0]
+    if first in MEDIA_NAME_MAPPINGS:
+        return MEDIA_NAME_MAPPINGS[first]
+    # Fallback: try longest matching prefix
+    return first
+
 
 
 def is_subtitle_candidate(text, prev_text, next_text):
@@ -566,7 +611,7 @@ def add_end_marker(doc):
 # MAIN DOCUMENT PROCESSING FUNCTIONS
 # =============================================================================
 
-def extract_document_structure(doc_path, json_output_path=None):
+def extract_document_structure(doc_path, json_output_path=None, monday_mode=False, sunday_date=None):
     """
     Extracts structure using state-based logic with Chinese conversion.
     """
@@ -577,7 +622,8 @@ def extract_document_structure(doc_path, json_output_path=None):
         json_output_path = doc_path.replace('.docx', '_structure.json')
     
     doc = Document(doc_path)
-    structure = {'total_paragraphs': len(doc.paragraphs), 'editorial_media_groups': [], 'sections': {}, 'other_content': []}
+    sanitized_paragraphs = sanitize_doc_paragraphs(doc)
+    structure = {'total_paragraphs': len(sanitized_paragraphs), 'editorial_media_groups': [], 'sections': {}, 'other_content': []}
     
     current_section = None
     in_editorial = False
@@ -586,18 +632,16 @@ def extract_document_structure(doc_path, json_output_path=None):
     is_expecting_title = False
     title_cooldown_counter = 0
 
-    paragraphs = doc.paragraphs
-    num_paragraphs = len(paragraphs)
-    
+    num_paragraphs = len(sanitized_paragraphs)
     # add paragraph while skipping first paragraph after metadata
     skip_next = False
-    for i, paragraph in enumerate(paragraphs):
+    for i, paragraph in enumerate(sanitized_paragraphs):
         if skip_next:
             skip_next = False
             continue  # Skip the paragraph after the metadata line
 
         
-        original_text = paragraph.text.strip()
+        original_text = paragraph.strip()
         text = convert_to_traditional_chinese(original_text)
         text = apply_gatekeeper_corrections(text)
 
@@ -606,8 +650,8 @@ def extract_document_structure(doc_path, json_output_path=None):
 
          # Check for subtitle removal BEFORE other processing
         if i > 0 and i < num_paragraphs - 1:  # Not first or last paragraph
-            prev_text = paragraphs[i-1].text.strip() if i > 0 else ""
-            next_text = paragraphs[i+1].text.strip() if i < num_paragraphs - 1 else ""
+            prev_text = sanitized_paragraphs[i-1].strip() if i > 0 else ""
+            next_text = sanitized_paragraphs[i+1].strip() if i < num_paragraphs - 1 else ""
             
             # Convert previous and next text for proper comparison
             prev_text = convert_to_traditional_chinese(prev_text)
@@ -628,11 +672,11 @@ def extract_document_structure(doc_path, json_output_path=None):
         if is_new_metadata_format(original_text):
             next_content = ""
             if i + 1 < num_paragraphs:
-                next_paragraph_text = paragraphs[i + 1].text.strip()
+                next_paragraph_text = sanitized_paragraphs[i + 1].strip()
                 next_content = convert_to_traditional_chinese(next_paragraph_text)
                 next_content = apply_gatekeeper_corrections(next_content)
             # Transform the metadata line with the *lead* of the next paragraph
-            text = transform_metadata_line(text, next_content)
+            text = transform_metadata_line(text, next_content, monday_mode=monday_mode, sunday_date=sunday_date)
             skip_next = True   # Set flag to skip the next paragraph
 
         section_type = detect_section_type(text)
@@ -681,7 +725,7 @@ def extract_document_structure(doc_path, json_output_path=None):
                 is_expecting_title = False
             else:
                 if i + 1 < num_paragraphs:
-                    next_paragraph_text_original = paragraphs[i+1].text.strip()
+                    next_paragraph_text_original = sanitized_paragraphs[i+1].strip()
                     next_paragraph_text = convert_to_traditional_chinese(next_paragraph_text_original)
                     next_paragraph_text = apply_gatekeeper_corrections(next_paragraph_text)
                     next_paragraph_text = remove_reporter_phrases(next_paragraph_text)
@@ -714,7 +758,7 @@ def extract_document_structure(doc_path, json_output_path=None):
     
     return structure
 
-def rebuild_document_from_structure(doc_path, structure_json_path=None, output_path=None):
+def rebuild_document_from_structure(doc_path, structure_json_path=None, output_path=None, monday_mode=False, sunday_date=None):
     """Rebuild document from extracted structure"""
     if structure_json_path is None:
         structure_json_path = doc_path.replace('.docx', '_structure.json')
@@ -764,14 +808,21 @@ def rebuild_document_from_structure(doc_path, structure_json_path=None, output_p
     previous_was_content = False
     last_article_idx = -1
     for idx, (content_type, content_data) in enumerate(all_content):
-        if content_type == 'other':
-            if content_data['type'] == 'section_header':
-                add_section_header_to_doc(new_doc, content_data['text'])
-            else:
-                clean_text = remove_reporter_phrases(content_data['text'])
-                clean_text = remove_inline_figure_table_markers(clean_text)
-                p = new_doc.add_paragraph(clean_text)
-                format_content_paragraph(p)
+        if content_type == 'other' and content_data['type'] == 'section_header':
+            # Get both the section label (used for matching) and the actual displayed section text
+            section_label = content_data.get('section', '')
+            section_text = content_data.get('text', '')
+            # --- Monday Notice Logic: Trigger ONLY before 國際新聞 ---
+            if monday_mode and sunday_date and (section_label == 'international' or '國際新聞' in section_text):
+                notice_line = f"是日新聞摘要包括週日重點新聞，除註明{sunday_date}外，其他均是今天新聞"
+                new_doc.add_paragraph(notice_line)
+            add_section_header_to_doc(new_doc, section_text)
+            previous_was_content = False  # new section break, clear spacing flag
+        elif content_type == 'other':
+            clean_text = remove_reporter_phrases(content_data['text'])
+            clean_text = remove_inline_figure_table_markers(clean_text)
+            p = new_doc.add_paragraph(clean_text)
+            format_content_paragraph(p)
             previous_was_content = True
         elif content_type == 'article':
             content_data['text'] = remove_reporter_phrases(content_data['text'])
