@@ -139,10 +139,31 @@ def reset_to_login_page(driver):
     except Exception as e:
         print("Pre-login reset failed:", e)
 
+def clear_login_fields(driver):
+    """Clear login page fields if populated, will use .clear() if possible and also overwrite."""
+    try:
+        selectors = {
+            'groupid': 'input[data-qa-ci="groupid"]',
+            'userid': 'input[data-qa-ci="userid"]',
+            'password': 'input[data-qa-ci="password"]',
+            'captcha': 'input.CaptchaField__Input-hffgxm-4',
+        }
+        for field, selector in selectors.items():
+            elems = driver.find_elements(By.CSS_SELECTOR, selector)
+            if elems:
+                try:
+                    elems[0].clear()
+                except Exception:
+                    # fallback: overwrite with empty string
+                    elems[0].send_keys('\ue009' + 'a')  # Ctrl+A
+                    elems[0].send_keys('\ue003')       # Del
+    except Exception as e:
+        print("Field clearing failed:", e)
+
 
 @retry_step
 def perform_login(**kwargs):
-    """Perform login to Wisers with captcha solving"""
+    """Perform login to Wisers with captcha solving & robust error handling."""
     driver = kwargs.get('driver')
     wait = kwargs.get('wait')
     group_name = kwargs.get('group_name')
@@ -150,79 +171,87 @@ def perform_login(**kwargs):
     password = kwargs.get('password')
     api_key = kwargs.get('api_key')
     st_module = kwargs.get('st_module')
-    
-    # Ensure on login page
-    st_module.write("Resetting to login page...")
-    reset_to_login_page(driver)
 
-    # Fill login form
+    # === 0. Check if already post-login / tutorial modal ===
+    # If dashboard or known modal element present, close it then return early (already logged in!)
+    try:
+        if driver.find_elements(By.CSS_SELECTOR, 'div.sc-1kg7aw5-0.dgeiTV > button'):
+            if st_module: st_module.write("Already logged in (dashboard detected).")
+            try:
+                close_tutorial_modal_ROBUST(driver=driver, wait=wait, status_text=st_module, st_module=st_module)
+            except Exception as e:
+                if st_module: st_module.warning(f"Tutorial modal close failed: {e}")
+            return
+    except Exception:
+        pass
+
+    # === 1. Reset and clear: always start from fresh login page ===
+    if st_module: st_module.write("Resetting to login page...")
+    reset_to_login_page(driver)
+    clear_login_fields(driver)
+
+    # === 2. Fill login form ===
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[data-qa-ci="groupid"]'))).send_keys(group_name)
     driver.find_element(By.CSS_SELECTOR, 'input[data-qa-ci="userid"]').send_keys(username)
     driver.find_element(By.CSS_SELECTOR, 'input[data-qa-ci="password"]').send_keys(password)
-    
-    # Solve captcha
+
+    # === 3. Solve captcha ===
     try:
         captcha_img = driver.find_element(By.CSS_SELECTOR, 'img.CaptchaField__CaptchaImage-hffgxm-5')
         captcha_src = captcha_img.get_attribute('src')
         img_data = base64.b64decode(captcha_src.split(',')[1])
-        
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_captcha:
             tmp_captcha.write(img_data)
             tmp_captcha_path = tmp_captcha.name
-            
         solver = TwoCaptcha(api_key)
         captcha_text = solver.normal(tmp_captcha_path)['code']
         os.remove(tmp_captcha_path)
-        
         driver.find_element(By.CSS_SELECTOR, 'input.CaptchaField__Input-hffgxm-4').send_keys(captcha_text)
-        
     except Exception as captcha_error:
         raise Exception(f"Failed during 2Captcha solving process: {captcha_error}")
-    
-    # Submit login
+
+    # === 4. Submit login ===
     login_btn = driver.find_element(By.CSS_SELECTOR, 'input[data-qa-ci="button-login"]')
     login_btn.click()
-    
-    # Verify login success/failure
+
+    # === 5. Wait for known post-login structure or error ===
     try:
         WebDriverWait(driver, 10).until(
             EC.any_of(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.sc-1kg7aw5-0.dgeiTV > button')),  # Success
-                EC.visibility_of_element_located((By.CSS_SELECTOR, 'div.NewContent__StyledNewErrorCode-q19ga1-5'))  # Failure
+                EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.sc-1kg7aw5-0.dgeiTV > button')),  # Success/dashboard
+                EC.visibility_of_element_located((By.CSS_SELECTOR, 'div.NewContent__StyledNewErrorCode-q19ga1-5'))    # Failure/error
             )
         )
     except TimeoutException:
         raise Exception("Login verification failed: The page did not load the dashboard or a known error message.")
-    
-    # Check for error messages
+
+    # === 6. Error Handling + Robust Logout if needed ===
     try:
         error_element = driver.find_element(By.CSS_SELECTOR, 'div.NewContent__StyledNewErrorCode-q19ga1-5')
         error_text = error_element.text.strip()
-        
         if "User over limit" in error_text:
-            msg = "Login Failed: The account has reached its login limit. It is likely already logged in elsewhere."
+            if st_module: st_module.warning("Login Failed: User over limit, triggering robust logout.")
+            robust_logout_request(driver, st_module)
+            raise Exception("Login Failed: The account has reached its login limit.")
         elif "captcha error" in error_text:
-            msg = "Login Failed: The captcha code was incorrect."
+            if st_module: st_module.warning("Login Failed: The captcha code was incorrect.")
+            raise Exception("Login Failed: Incorrect captcha code.")
         elif "Sorry, your login details are incorrect, please try again." in error_text:
-            msg = "Login Failed: Incorrect Group, Username, or Password."
+            if st_module: st_module.warning("Login Failed: Incorrect Group, Username, or Password.")
+            raise Exception("Login Failed: Wrong credentials.")
         else:
-            msg = f"Login Failed: An unrecognized error appeared: '{error_text}'"
-            
-        if st_module:
-            st_module.warning(msg)
-        raise Exception(msg)
-        
+            msg = f"Login Failed: Unrecognized error: '{error_text}'"
+            if st_module: st_module.warning(msg)
+            raise Exception(msg)
     except NoSuchElementException:
         # No error found = successful login
-        if st_module:
-            st_module.write("✅ Login successfully verified.")
-        # NEW: Try to close tutorial modal if present
+        if st_module: st_module.write("✅ Login successfully verified.")
         try:
             close_tutorial_modal_ROBUST(driver=driver, wait=wait, status_text=st_module, st_module=st_module)
         except Exception as e:
-            if st_module:
-                st_module.warning(f"Could not close tutorial modal: {e}")
+            if st_module: st_module.warning(f"Could not close tutorial modal: {e}")
         return
+
 
 @retry_step
 def close_tutorial_modal_ROBUST(**kwargs):
