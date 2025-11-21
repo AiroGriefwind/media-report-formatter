@@ -44,7 +44,7 @@ def render_international_news_tab():
         passwordintl = st.text_input("Password", type="password", placeholder="Enter password", key="intlpassword")
         apikeyintl = st.text_input("2Captcha API Key", type="password", placeholder="Enter API key", key="intlapi")
 
-    #runheadlessintl = st.sidebar.checkbox("Run in headless mode", value=True)
+    run_headless_intl = st.sidebar.checkbox("Run in headless mode", value=True)
     #keepbrowseropenintl = st.sidebar.checkbox("Keep browser open after script finishes/fails")
 
     if st.button("Preview Hover Results (no authentic click)"):
