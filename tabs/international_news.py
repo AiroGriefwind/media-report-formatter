@@ -51,7 +51,10 @@ def render_international_news_tab():
         with st.spinner("Setting up web driver..."):
             driver = setup_webdriver(headless=run_headless_intl, stmodule=st)
             wait = WebDriverWait(driver, 20)
-            perform_login(driver, wait, groupnameintl, usernameintl, passwordintl, apikeyintl, stmodule=st)
+            perform_login(
+            driver=driver, wait=wait, group_name=group_name,
+            username=username, password=password, api_key=api_key, st_module=st
+            )
             close_tutorial_modal_ROBUST(driver, wait, stmodule=st)
             switch_language_to_traditional_chinese(driver, wait, stmodule=st)
 
