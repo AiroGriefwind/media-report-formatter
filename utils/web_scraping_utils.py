@@ -257,7 +257,25 @@ def ensure_search_results_ready(**kwargs):
 
 
 
-
+def scrape_hover_popovers(driver, wait_time=3):
+    """Scrape hoverbox content from all search result items (no authentic click incurred)."""
+    hover_elements = driver.find_elements(By.CSS_SELECTOR, 'span[rel="popover-article"]')
+    results = []
+    actions = ActionChains(driver)
+    for elem in hover_elements:
+        try:
+            actions.move_to_element(elem).perform()
+            # Wait for popover to appear (class 'popover-article')
+            popover = WebDriverWait(driver, wait_time).until(
+                EC.visibility_of_element_located((By.CSS_SELECTOR, 'div.popover.popover-article'))
+            )
+            # Extract hoverbox HTML/text
+            box_title = elem.text
+            hover_html = popover.get_attribute('innerHTML')
+            results.append({'title': box_title, 'hover_html': hover_html})
+        except Exception as e:
+            results.append({'title': elem.text, 'hover_html': f'ERROR: {e}'})
+    return results
 
 
 

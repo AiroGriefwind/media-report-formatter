@@ -2,8 +2,20 @@ import streamlit as st
 import tempfile
 import time
 import traceback
-from selenium.webdriver.support.ui import WebDriverWait
 from datetime import datetime
+from selenium.webdriver.support.ui import WebDriverWait
+from utils.wisers_utils import (
+    setup_webdriver,
+    perform_login,
+    close_tutorial_modal_ROBUST,
+    switch_language_to_traditional_chinese,
+    go_back_to_search_form,
+    logout,
+    robust_logout_request,
+    wait_for_search_results
+)
+from utils.web_scraping_utils import scrape_hover_popovers
+
 
 # Import Wisers platform functions
 from utils.wisers_utils import (
@@ -23,6 +35,55 @@ from utils.international_news_utils import (
 )
 
 def render_international_news_tab():
+    st.header("International News Scraping")
+    st.markdown("Scrape 80-100 pieces of international news articles and generate a Word report.")
+
+    with st.expander("International News Configuration", expanded=True):
+        groupnameintl = st.text_input("Group Name", value="SPRG1", key="intlgroup")
+        usernameintl = st.text_input("Username", placeholder="Enter username", key="intlusername")
+        passwordintl = st.text_input("Password", type="password", placeholder="Enter password", key="intlpassword")
+        apikeyintl = st.text_input("2Captcha API Key", type="password", placeholder="Enter API key", key="intlapi")
+
+    #runheadlessintl = st.sidebar.checkbox("Run in headless mode", value=True)
+    #keepbrowseropenintl = st.sidebar.checkbox("Keep browser open after script finishes/fails")
+
+    if st.button("Preview Hover Results (no authentic click)"):
+        with st.spinner("Setting up web driver..."):
+            driver = setup_webdriver(headless=run_headless_intl, stmodule=st)
+            wait = WebDriverWait(driver, 20)
+            perform_login(driver, wait, groupnameintl, usernameintl, passwordintl, apikeyintl, stmodule=st)
+            close_tutorial_modal_ROBUST(driver, wait, stmodule=st)
+            switch_language_to_traditional_chinese(driver, wait, stmodule=st)
+
+        st.info("Scraping article hover previews...")
+        preview_list = scrape_hover_popovers(driver)
+        st.success(f"Found {len(preview_list)} article previews.")
+
+        titles = [item['title'] for item in preview_list]
+        selected_idx = st.multiselect("Select articles for full scrape", list(range(len(titles))), format_func=lambda i: titles[i])
+
+        st.subheader("Preview details of selected articles:")
+        for i in selected_idx:
+            st.markdown(f"**{preview_list[i]['title']}**")
+            st.markdown(preview_list[i]['hover_html'], unsafe_allow_html=True)
+            st.markdown("---")
+
+        if st.button("Scrape selected articles (will incur authentic clicks)"):
+            st.warning("Full article scraping not implemented in this preview function.")
+            #st.warning("This will scrape the FULL article details for selected items, incurring cost.")
+            # results = []
+            # for idx in selected_idx:
+            #     # Replace this section by your full article scraping method.
+            #     result = scrape_full_article(driver, preview_list[idx])  # Replace with your logic
+            #     results.append(result)
+            # st.success(f"Scraped {len(results)} articles. Download or view results below.")
+            # # Display/download as needed.
+
+        logout(driver, wait, stmodule=st)
+        robust_logout_request(driver, stmodule=st)
+
+    st.markdown("---")
+    st.caption("Provide feedback on international news workflow improvements below.")
     """Render the international news scraping tab"""
     st.header("International News Scraping")
     st.markdown("Scrape 80-100 pieces of international news articles and generate a Word report.")
