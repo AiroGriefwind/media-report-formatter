@@ -198,6 +198,63 @@ def should_scrape_article_based_on_metadata(metadata_text, min_words=200, max_wo
     
     return True
 
+def create_hover_preview_report(**kwargs):
+    """
+    Create a Word document report from hover preview list.
+    
+    Expected kwargs:
+      - preview_data: list of dict with 'title', 'hover_html', 'hover_text'
+      - output_path: path to save docx file
+      - st_module: optional Streamlit module for logging
+    """
+    from docx import Document
+    from docx.shared import Pt, RGBColor
+    from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+    
+    preview_data = kwargs.get('preview_data', [])
+    output_path = kwargs.get('output_path')
+    st = kwargs.get('st_module')
+    
+    doc = Document()
+    
+    # Add title
+    title = doc.add_heading('國際新聞 - 懸停預覽報告', level=1)
+    title.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    
+    # Add date
+    date_para = doc.add_paragraph(f"生成日期: {datetime.now().strftime('%Y年%m月%d日')}")
+    date_para.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    
+    # Add summary
+    doc.add_paragraph(f"總共找到 {len(preview_data)} 篇文章")
+    doc.add_paragraph()
+    
+    # Add articles
+    for idx, item in enumerate(preview_data, 1):
+        # Article number and title
+        title_para = doc.add_heading(f"{idx}. {item.get('title', 'Unknown')}", level=2)
+        
+        # Hover text/summary
+        hover_text = item.get('hover_text', '')
+        if hover_text:
+            doc.add_paragraph(f"摘要: {hover_text}")
+        else:
+            hover_html = item.get('hover_html', '')
+            if hover_html:
+                # Strip HTML tags for readability in Word
+                import re
+                clean_text = re.sub('<[^<]+?>', '', hover_html)
+                doc.add_paragraph(f"摘要: {clean_text}")
+        
+        # Separator
+        doc.add_paragraph()
+    
+    doc.save(output_path)
+    if st:
+        st.write(f"✅ Report saved to {output_path}")
+    return output_path
+
+
 @retry_step
 def scrape_international_articles_sequentially(**kwargs):
     """Scrape international articles with pre-filtering for news only and word count limit"""
