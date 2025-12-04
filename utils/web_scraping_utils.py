@@ -257,25 +257,95 @@ def ensure_search_results_ready(**kwargs):
 
 
 
-def scrape_hover_popovers(driver, wait_time=3):
-    """Scrape hoverbox content from all search result items (no authentic click incurred)."""
-    hover_elements = driver.find_elements(By.CSS_SELECTOR, 'span[rel="popover-article"]')
-    results = []
-    actions = ActionChains(driver)
-    for elem in hover_elements:
-        try:
-            actions.move_to_element(elem).perform()
-            # Wait for popover to appear (class 'popover-article')
-            popover = WebDriverWait(driver, wait_time).until(
-                EC.visibility_of_element_located((By.CSS_SELECTOR, 'div.popover.popover-article'))
-            )
-            # Extract hoverbox HTML/text
-            box_title = elem.text
-            hover_html = popover.get_attribute('innerHTML')
-            results.append({'title': box_title, 'hover_html': hover_html})
-        except Exception as e:
-            results.append({'title': elem.text, 'hover_html': f'ERROR: {e}'})
-    return results
+@retry_step
+def scrape_hover_popovers(**kwargs):
+    """
+    Hover over each search result item and collect the popover (hoverbox) content.
+
+    Expects:
+      - driver: Selenium WebDriver
+      - wait: WebDriverWait
+      - st_module: optional Streamlit module for logging
+    """
+    driver = kwargs.get("driver")
+    wait = kwargs.get("wait")
+    st = kwargs.get("st_module")
+
+    previews = []
+
+    try:
+        elements = driver.find_elements(By.CSS_SELECTOR, "span[rel='popover-article']")
+        if st:
+            st.write(f"Found {len(elements)} hoverable items on the page.")
+
+        actions = ActionChains(driver)
+
+        for idx, el in enumerate(elements):
+            title = el.text.strip()
+
+            try:
+                # Move mouse over the element to trigger the popover
+                actions.move_to_element(el).perform()
+
+                # Wait for any popover for articles to become visible
+                wait.until(
+                    EC.visibility_of_element_located(
+                        (By.CSS_SELECTOR, "div.popover.popover-article")
+                    )
+                )
+                popovers = driver.find_elements(
+                    By.CSS_SELECTOR, "div.popover.popover-article"
+                )
+                hover_el = popovers[-1] if popovers else None
+
+                hover_html = hover_el.get_attribute("innerHTML") if hover_el else ""
+                hover_text = hover_el.text.strip() if hover_el else ""
+
+                previews.append(
+                    {
+                        "index": idx,
+                        "title": title,
+                        "hover_html": hover_html,
+                        "hover_text": hover_text,
+                    }
+                )
+
+            except TimeoutException:
+                if st:
+                    st.warning(
+                        f"Popover for result {idx+1} ('{title[:30]}...') "
+                        "did not appear in time."
+                    )
+                previews.append(
+                    {
+                        "index": idx,
+                        "title": title,
+                        "hover_html": "",
+                        "hover_text": "",
+                        "error": "popover_timeout",
+                    }
+                )
+            except Exception as e:
+                if st:
+                    st.warning(f"Error capturing hover for item {idx+1}: {e}")
+                previews.append(
+                    {
+                        "index": idx,
+                        "title": title,
+                        "hover_html": "",
+                        "hover_text": "",
+                        "error": str(e),
+                    }
+                )
+
+        return previews
+
+    except Exception as e:
+        if st:
+            st.error(f"Critical error in scrape_hover_popovers: {e}")
+            st.code(traceback.format_exc())
+        # Let retry_step handle retries / final failure
+        raise
 
 
 

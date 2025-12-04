@@ -34,106 +34,193 @@ from utils.international_news_utils import (
     create_international_news_report
 )
 
-def render_international_news_tab():
-    st.header("International News Scraping")
-    st.markdown("Scrape 80-100 pieces of international news articles and generate a Word report.")
+def _handle_international_hover_preview(
+    group_name_intl,
+    username_intl,
+    password_intl,
+    api_key_intl,
+    run_headless_intl,
+    keep_browser_open_intl,
+):
+    """
+    Login, run 國際新聞 search, then scrape and display hoverbox previews
+    without clicking into full articles (no 'authentic clicks').
+    """
+    if not all([group_name_intl, username_intl, password_intl, api_key_intl]):
+        st.error("❌ Please provide all required credentials and the API key to proceed.")
+        st.stop()
 
-    with st.expander("International News Configuration", expanded=True):
-        groupnameintl = st.text_input("Group Name", value="SPRG1", key="intlgroup")
-        usernameintl = st.text_input("Username", placeholder="Enter username", key="intlusername")
-        passwordintl = st.text_input("Password", type="password", placeholder="Enter password", key="intlpassword")
-        apikeyintl = st.text_input("2Captcha API Key", type="password", placeholder="Enter API key", key="intlapi")
+    driver = None
+    try:
+        with st.spinner("Setting up browser and logging in for hover preview..."):
+            driver = setup_webdriver(headless=run_headless_intl, st_module=st)
+            if driver is None:
+                st.error("Driver setup failed, cannot continue. See logs above for details.")
+                st.stop()
 
-    run_headless_intl = st.sidebar.checkbox("Run in headless mode", value=True)
-    #keepbrowseropenintl = st.sidebar.checkbox("Keep browser open after script finishes/fails")
-
-    if st.button("Preview Hover Results (no authentic click)"):
-        with st.spinner("Setting up web driver..."):
-            driver = setup_webdriver(headless=run_headless_intl, stmodule=st)
             wait = WebDriverWait(driver, 20)
-            perform_login(
-            driver=driver, wait=wait, group_name=group_name,
-            username=username, password=password, api_key=api_key, st_module=st
-            )
-            close_tutorial_modal_ROBUST(driver, wait, stmodule=st)
-            switch_language_to_traditional_chinese(driver, wait, stmodule=st)
 
-        st.info("Scraping article hover previews...")
-        preview_list = scrape_hover_popovers(driver)
+            # Reuse the central login handler
+            perform_login(
+                driver=driver,
+                wait=wait,
+                group_name=group_name_intl,
+                username=username_intl,
+                password=password_intl,
+                api_key=api_key_intl,
+                st_module=st,
+            )
+
+            # perform_login already attempts to close the tutorial modal.
+            # Just ensure language is set.
+            switch_language_to_traditional_chinese(
+                driver=driver,
+                wait=wait,
+                st_module=st,
+            )
+
+            # Run the existing 國際新聞 saved search so results are visible
+            st.info("Running 國際新聞 saved search to populate results list...")
+            _ = run_international_news_task(driver=driver, wait=wait, st_module=st)
+
+        st.info("Scraping article hover previews (no authentic click)...")
+        preview_list = scrape_hover_popovers(driver=driver, wait=wait, st_module=st)
         st.success(f"Found {len(preview_list)} article previews.")
 
-        titles = [item['title'] for item in preview_list]
-        selected_idx = st.multiselect("Select articles for full scrape", list(range(len(titles))), format_func=lambda i: titles[i])
+        if not preview_list:
+            st.warning("No hoverable results found on the page.")
+            return
+
+        titles = [
+            item.get("title") or f"Result {i+1}"
+            for i, item in enumerate(preview_list)
+        ]
+        selected_idx = st.multiselect(
+            "Select articles that look relevant (this does NOT click into articles)",
+            options=list(range(len(titles))),
+            format_func=lambda i: titles[i],
+        )
 
         st.subheader("Preview details of selected articles:")
         for i in selected_idx:
-            st.markdown(f"**{preview_list[i]['title']}**")
-            st.markdown(preview_list[i]['hover_html'], unsafe_allow_html=True)
+            item = preview_list[i]
+            st.markdown(f"**{item.get('title', f'Result {i+1}') }**")
+            # Prefer HTML preview if available
+            hover_html = item.get("hover_html") or item.get("hover_text", "")
+            if hover_html:
+                st.markdown(hover_html, unsafe_allow_html=True)
+            else:
+                st.markdown("_No hover content captured for this item._")
             st.markdown("---")
 
-        if st.button("Scrape selected articles (will incur authentic clicks)"):
-            st.warning("Full article scraping not implemented in this preview function.")
-            #st.warning("This will scrape the FULL article details for selected items, incurring cost.")
-            # results = []
-            # for idx in selected_idx:
-            #     # Replace this section by your full article scraping method.
-            #     result = scrape_full_article(driver, preview_list[idx])  # Replace with your logic
-            #     results.append(result)
-            # st.success(f"Scraped {len(results)} articles. Download or view results below.")
-            # # Display/download as needed.
+        # You can later wire this selection into the full scraping flow via session_state
+        if selected_idx and st.button("✅ Confirm selection (no scraping yet)"):
+            st.session_state["intl_hover_selected_indices"] = selected_idx
+            st.success(
+                f"{len(selected_idx)} articles marked as interesting. "
+                "You can now run full scraping later and limit it to these, if desired."
+            )
 
-        logout(driver, wait, stmodule=st)
-        robust_logout_request(driver, stmodule=st)
+    except Exception as e:
+        st.error(f"❌ Hover preview failed: {str(e)}")
+        st.code(traceback.format_exc())
+    finally:
+        # Ensure logout to avoid dangling sessions
+        try:
+            if driver:
+                if not keep_browser_open_intl:
+                    try:
+                        logout(driver=driver, wait=WebDriverWait(driver, 10), st_module=st)
+                    except Exception:
+                        pass
+                    robust_logout_request(driver, st_module=st)
+                else:
+                    st.warning("🤖 Browser kept open for inspection as requested.")
+        except Exception as cleanup_err:
+            st.error(f"Error during hover-preview cleanup: {cleanup_err}")
 
-    st.markdown("---")
-    st.caption("Provide feedback on international news workflow improvements below.")
+def render_international_news_tab():
     """Render the international news scraping tab"""
     st.header("International News Scraping")
     st.markdown("Scrape 80-100 pieces of international news articles and generate a Word report.")
-    
+
+    # -------------------------
+    # Credentials & basic config
+    # -------------------------
     with st.expander("⚙️ International News Configuration", expanded=True):
         col1, col2 = st.columns(2)
-        
+
         with col1:
             group_name_intl, username_intl, password_intl = _get_credentials_intl()
-            
+
         with col2:
             api_key_intl = _get_api_key_intl()
 
     # International news specific settings
     max_articles = st.slider(
-        "Maximum articles to scrape", 
-        min_value=50, max_value=150, value=100,
-        help="Limit the number of international news articles to scrape"
+        "Maximum articles to scrape",
+        min_value=50,
+        max_value=150,
+        value=100,
+        help="Limit the number of international news articles to scrape",
     )
     max_words = st.slider(
-        "Maximum word count per article", 
-        min_value=200, max_value=2000, value=1000,
-        help="Skip articles longer than this word count"
+        "Maximum word count per article",
+        min_value=200,
+        max_value=2000,
+        value=1000,
+        help="Skip articles longer than this word count",
     )
     min_words = st.slider(
-        "Minimum word count per article", 
-        min_value=50, max_value=500, value=200,
-        help="Skip articles shorter than this word count"
+        "Minimum word count per article",
+        min_value=50,
+        max_value=500,
+        value=200,
+        help="Skip articles shorter than this word count",
     )
 
     # Sidebar options
     st.sidebar.header("International News Options")
     st.sidebar.markdown("---")
     run_headless_intl = st.sidebar.checkbox(
-        "Run in headless mode (faster, no visible browser)", 
-        value=True, key="intl_headless"
+        "Run in headless mode (faster, no visible browser)",
+        value=True,
+        key="intl_headless",
     )
     keep_browser_open_intl = st.sidebar.checkbox(
-        "Keep browser open after script finishes/fails", 
-        key="intl_keep_open"
+        "Keep browser open after script finishes/fails",
+        key="intl_keep_open",
     )
 
+    # -------------------------
+    # New: Hover preview flow (no authentic click)
+    # -------------------------
+    if st.button("🔍 Preview Hover Results (no authentic click)"):
+        _handle_international_hover_preview(
+            group_name_intl=group_name_intl,
+            username_intl=username_intl,
+            password_intl=password_intl,
+            api_key_intl=api_key_intl,
+            run_headless_intl=run_headless_intl,
+            keep_browser_open_intl=keep_browser_open_intl,
+        )
+
+    st.markdown("---")
+
+    # -------------------------
+    # Existing: Full scraping flow
+    # -------------------------
     if st.button("🌍 Start International News Scraping", type="primary"):
         _handle_international_news_scraping(
-            group_name_intl, username_intl, password_intl, api_key_intl,
-            max_articles, max_words, min_words, 
-            run_headless_intl, keep_browser_open_intl
+            group_name_intl,
+            username_intl,
+            password_intl,
+            api_key_intl,
+            max_articles,
+            max_words,
+            min_words,
+            run_headless_intl,
+            keep_browser_open_intl,
         )
 
 def _get_credentials_intl():
