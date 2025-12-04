@@ -261,6 +261,8 @@ def ensure_search_results_ready(**kwargs):
 def scrape_hover_popovers(**kwargs):
     """
     Hover over each search result item and collect the popover (hoverbox) content.
+    Includes a specific wait for the content preloader to disappear, ensuring
+    the full summary is loaded before scraping.
 
     Expects:
       - driver: Selenium WebDriver
@@ -287,19 +289,30 @@ def scrape_hover_popovers(**kwargs):
                 # Move mouse over the element to trigger the popover
                 actions.move_to_element(el).perform()
 
-                # Wait for any popover for articles to become visible
-                wait.until(
+                # --- START OF THE FIX ---
+
+                # 1. Wait for the main popover container to appear
+                # We need a short wait here just for the container.
+                popover_wait = WebDriverWait(driver, 5)
+                popover = popover_wait.until(
                     EC.visibility_of_element_located(
                         (By.CSS_SELECTOR, "div.popover.popover-article")
                     )
                 )
-                popovers = driver.find_elements(
-                    By.CSS_SELECTOR, "div.popover.popover-article"
-                )
-                hover_el = popovers[-1] if popovers else None
 
-                hover_html = hover_el.get_attribute("innerHTML") if hover_el else ""
-                hover_text = hover_el.text.strip() if hover_el else ""
+                # 2. NEW: Wait for the preloader *inside* the popover to disappear.
+                #    This is the key to ensuring the content is fully loaded.
+                popover_wait.until(
+                    EC.invisibility_of_element_located(
+                        (By.CSS_SELECTOR, "div.popover.popover-article div.preloader")
+                    )
+                )
+                
+                # --- END OF THE FIX ---
+
+                # 3. Now it's safe to scrape the full content
+                hover_html = popover.get_attribute("innerHTML")
+                hover_text = popover.text.strip()
 
                 previews.append(
                     {
@@ -313,16 +326,16 @@ def scrape_hover_popovers(**kwargs):
             except TimeoutException:
                 if st:
                     st.warning(
-                        f"Popover for result {idx+1} ('{title[:30]}...') "
-                        "did not appear in time."
+                        f"Popover content for result {idx+1} ('{title[:30]}...') "
+                        "did not fully load in time."
                     )
                 previews.append(
                     {
                         "index": idx,
                         "title": title,
-                        "hover_html": "",
-                        "hover_text": "",
-                        "error": "popover_timeout",
+                        "hover_html": f"<i>(Content failed to load for: {title})</i>",
+                        "hover_text": f"(Content failed to load for: {title})",
+                        "error": "popover_content_timeout",
                     }
                 )
             except Exception as e:
@@ -332,8 +345,8 @@ def scrape_hover_popovers(**kwargs):
                     {
                         "index": idx,
                         "title": title,
-                        "hover_html": "",
-                        "hover_text": "",
+                        "hover_html": f"<i>(Error: {e})</i>",
+                        "hover_text": f"(Error: {e})",
                         "error": str(e),
                     }
                 )
@@ -346,7 +359,6 @@ def scrape_hover_popovers(**kwargs):
             st.code(traceback.format_exc())
         # Let retry_step handle retries / final failure
         raise
-
 
 
 @retry_step
