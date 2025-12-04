@@ -34,7 +34,6 @@ from utils.international_news_utils import (
     create_international_news_report,
     create_hover_preview_report
 )
-
 def _handle_international_hover_preview(
     group_name_intl,
     username_intl,
@@ -53,14 +52,18 @@ def _handle_international_hover_preview(
         st.error("❌ Please provide all required credentials and the API key to proceed.")
         st.stop()
 
-    # Initialize session state for hover preview
+    # Initialize session state for hover preview list
     if "intl_hover_preview_list" not in st.session_state:
         st.session_state.intl_hover_preview_list = None
-    
+
+    # Initialize session state for selection if needed (optional, but good for clarity)
+    if "intl_hover_selection" not in st.session_state:
+        st.session_state.intl_hover_selection = []
+
     driver = None
 
     try:
-        # Only run scraping if preview_list is not already in session state
+        # --- PHASE 1: SCRAPING (Only if not cached) ---
         if st.session_state.intl_hover_preview_list is None:
             with st.spinner("Setting up browser and logging in for hover preview..."):
                 driver = setup_webdriver(headless=run_headless_intl, st_module=st)
@@ -81,13 +84,7 @@ def _handle_international_hover_preview(
                     st_module=st,
                 )
 
-                # perform_login already attempts to close the tutorial modal.
-                # Just ensure language is set.
-                switch_language_to_traditional_chinese(
-                    driver=driver,
-                    wait=wait,
-                    st_module=st,
-                )
+                switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
 
                 # Run the existing 國際新聞 saved search so results are visible
                 st.info("Running 國際新聞 saved search to populate results list...")
@@ -97,46 +94,45 @@ def _handle_international_hover_preview(
             preview_list = scrape_hover_popovers(driver=driver, wait=wait, st_module=st)
             st.success(f"Found {len(preview_list)} article previews.")
 
-            # Store in session state so it persists across reruns
+            # Store in session state
             st.session_state.intl_hover_preview_list = preview_list
+            
+            # Cleanup driver early since we have the data
+            if not keep_browser_open_intl:
+                logout(driver=driver, wait=wait, st_module=st)
+                robust_logout_request(driver, st_module=st)
 
-            if not preview_list:
-                st.warning("No hoverable results found on the page.")
-                return
         else:
             preview_list = st.session_state.intl_hover_preview_list
             st.info(f"📌 Using cached preview list ({len(preview_list)} articles from previous scrape)")
 
-        # Display titles for selection
-        titles = [
-            item.get("title") or f"Result {i+1}"
-            for i, item in enumerate(preview_list)
-        ]
+        if not preview_list:
+            st.warning("No hoverable results found.")
+            return
 
+        # --- PHASE 2: SELECTION & DISPLAY ---
+        
+        # Create options list
+        options = list(range(len(preview_list)))
+        
+        def format_func(i):
+            item = preview_list[i]
+            return f"{i+1}. {item.get('title', 'Unknown Title')}"
+
+        # Multiselect with session state key
         selected_idx = st.multiselect(
-            "Select articles that look relevant (this does NOT click into articles)",
-            options=list(range(len(titles))),
-            format_func=lambda i: titles[i],
+            "Select articles that look relevant:",
+            options=options,
+            format_func=format_func,
+            key="intl_hover_multiselect"  # <--- CRITICAL: Persists selection state
         )
 
-        # Display selected articles
+        # Display selected articles immediately
         if selected_idx:
-            st.subheader("Preview details of selected articles:")
-            for i in selected_idx:
-                item = preview_list[i]
-                st.markdown(f"**{i+1}. {item.get('title', f'Result {i+1}') }**")
-                
-                # Prefer HTML preview if available
-                hover_html = item.get("hover_html") or item.get("hover_text", "")
-                if hover_html:
-                    st.markdown(hover_html, unsafe_allow_html=True)
-                else:
-                    st.markdown("_No hover content captured for this item._")
-                st.markdown("---")
-
-            # Generate report button
+            st.markdown("### 📝 Preview Selected Articles")
+            
+            # Generate Report Button
             if st.button("📄 Generate & Download Report"):
-                # Filter preview_list to selected items only
                 selected_previews = [preview_list[i] for i in selected_idx]
                 
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_report:
@@ -146,7 +142,6 @@ def _handle_international_hover_preview(
                         st_module=st,
                     )
 
-                # Provide download button
                 with open(output_path, "rb") as f:
                     st.download_button(
                         label="📥 Download Hover Preview Report",
@@ -154,30 +149,38 @@ def _handle_international_hover_preview(
                         file_name=f"國際新聞懸停預覽_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     )
-                st.success("✅ Report ready for download!")
 
-            # Clear cache button
-            if st.button("🔄 Clear Cache & Scrape Again"):
-                st.session_state.intl_hover_preview_list = None
-                st.rerun()
+            st.markdown("---")
+            
+            # Render preview cards
+            for i in selected_idx:
+                item = preview_list[i]
+                with st.container():
+                    st.markdown(f"#### {i+1}. {item.get('title', 'Unknown')}")
+                    
+                    # Display Hover Content
+                    hover_html = item.get("hover_html")
+                    hover_text = item.get("hover_text")
+                    
+                    if hover_html:
+                        st.markdown(hover_html, unsafe_allow_html=True)
+                    elif hover_text:
+                        st.info(hover_text)
+                    else:
+                        st.warning("No preview content available.")
+                    
+                    st.markdown("---")
+
+        # Clear Cache Button
+        if st.button("🔄 Clear Cache & Scrape Again"):
+            st.session_state.intl_hover_preview_list = None
+            if "intl_hover_multiselect" in st.session_state:
+                del st.session_state.intl_hover_multiselect
+            st.rerun()
 
     except Exception as e:
         st.error(f"❌ Hover preview failed: {str(e)}")
         st.code(traceback.format_exc())
-    finally:
-        # Ensure logout to avoid dangling sessions
-        try:
-            if driver:
-                if not keep_browser_open_intl:
-                    try:
-                        logout(driver=driver, wait=WebDriverWait(driver, 10), st_module=st)
-                    except Exception:
-                        pass
-                    robust_logout_request(driver, st_module=st)
-                else:
-                    st.warning("🤖 Browser kept open for inspection as requested.")
-        except Exception as cleanup_err:
-            st.error(f"Error during hover-preview cleanup: {cleanup_err}")
 
 
 def render_international_news_tab():
