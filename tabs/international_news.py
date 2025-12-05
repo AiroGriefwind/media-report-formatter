@@ -4,6 +4,7 @@ import time
 import traceback
 from datetime import datetime
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.common.by import By
 from utils.wisers_utils import (
     setup_webdriver,
     perform_login,
@@ -152,7 +153,7 @@ def _handle_international_hover_preview(
                 st.warning("No results passed the word count/filter criteria.")
                 return
             preview_list = filtered_preview_list
-            
+
         else:
             preview_list = st.session_state.intl_hover_preview_list
             st.info(f"📌 Using cached preview list ({len(preview_list)} articles from previous scrape)")
