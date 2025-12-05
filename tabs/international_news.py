@@ -32,7 +32,8 @@ from utils.international_news_utils import (
     run_international_news_task,
     scrape_international_articles_sequentially,
     create_international_news_report,
-    create_hover_preview_report
+    create_hover_preview_report,
+    should_scrape_article_based_on_metadata
 )
 
 def _handle_international_hover_preview(
@@ -42,6 +43,8 @@ def _handle_international_hover_preview(
     api_key_intl,
     run_headless_intl,
     keep_browser_open_intl,
+    max_words,          
+    min_words,          
 ):
     """
     Login, run 國際新聞 search, then scrape and display hoverbox previews
@@ -89,20 +92,67 @@ def _handle_international_hover_preview(
                     st_module=st,
                 )
 
-                # Run the existing 國際新聞 saved search so results are visible
-                st.info("Running 國際新聞 saved search to populate results list...")
-                _ = run_international_news_task(driver=driver, wait=wait, st_module=st)
-
+                 # 1. 运行搜索
+            st.info("Running 國際新聞 saved search to populate results list...")
+            _ = run_international_news_task(driver=driver, wait=wait, st_module=st)
+            
+            # 2. 先进行悬浮爬取 (这一步比较耗时，先做了拿到所有内容)
             st.info("Scraping article hover previews (no authentic click)...")
-            preview_list = scrape_hover_popovers(driver=driver, wait=wait, st_module=st)
-            st.success(f"Found {len(preview_list)} article previews.")
+            raw_preview_list = scrape_hover_popovers(driver=driver, wait=wait, st_module=st)
+            
+            # 3. 【关键修改】遍历页面元素读取 Metadata，利用现有逻辑进行过滤
+            st.info("Applying word count & opinion filters based on metadata...")
+            
+            filtered_preview_list = []
+            
+            # 重新获取页面上的列表元素，用于提取 metadata
+            # 注意：这里的 list-group-item 顺序必须和 scrape_hover_popovers 返回的顺序一致
+            # 通常它们都是按 DOM 顺序抓取的，所以 index 是一一对应的
+            article_elements = driver.find_elements(By.CSS_SELECTOR, 'div.list-group-item.no-excerpt')
+            
+            # 确保元素数量一致，防止越界（通常是一致的）
+            limit = min(len(article_elements), len(raw_preview_list))
+            
+            for i in range(limit):
+                element = article_elements[i]
+                preview_item = raw_preview_list[i]
+                
+                try:
+                    # 提取 metadata，逻辑参考了 scrape_international_articles_sequentially
+                    metadata_text = element.find_element(By.CSS_SELECTOR, 'small').text.strip()
+                    
+                    # 直接调用现有的判断函数！
+                    is_valid = should_scrape_article_based_on_metadata(
+                        metadata_text, 
+                        min_words=min_words, 
+                        max_words=max_words
+                    )
+                    
+                    if is_valid:
+                        # 如果通过检查，保留这个 preview item
+                        # 顺便把 metadata 也存进去，方便调试或报告展示
+                        preview_item['metadata_line'] = metadata_text 
+                        filtered_preview_list.append(preview_item)
+                    else:
+                        # 这里的 print/write 是可选的，调试用
+                        # print(f"Filtered out index {i}: {metadata_text}")
+                        pass
+                        
+                except Exception as e:
+                    # 如果找不到 metadata，默认保留或者记录错误
+                    # 这里选择默认保留，防止误杀
+                    filtered_preview_list.append(preview_item)
 
-            # Store in session state so it persists across reruns
-            st.session_state.intl_hover_preview_list = preview_list
+            st.success(f"Found {len(raw_preview_list)} previews, {len(filtered_preview_list)} passed filters.")
 
-            if not preview_list:
-                st.warning("No hoverable results found on the page.")
+            # 更新 session state 为过滤后的列表
+            st.session_state.intl_hover_preview_list = filtered_preview_list
+            
+            if not filtered_preview_list:
+                st.warning("No results passed the word count/filter criteria.")
                 return
+            preview_list = filtered_preview_list
+            
         else:
             preview_list = st.session_state.intl_hover_preview_list
             st.info(f"📌 Using cached preview list ({len(preview_list)} articles from previous scrape)")
@@ -275,6 +325,8 @@ def render_international_news_tab():
             api_key_intl=api_key_intl,
             run_headless_intl=run_headless_intl,
             keep_browser_open_intl=keep_browser_open_intl,
+            max_words=max_words,      # 新增
+            min_words=min_words,      # 新增
         )
 
 
