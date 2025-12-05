@@ -201,58 +201,120 @@ def should_scrape_article_based_on_metadata(metadata_text, min_words=200, max_wo
 def create_hover_preview_report(**kwargs):
     """
     Create a Word document report from hover preview list.
-    
     Expected kwargs:
-      - preview_data: list of dict with 'title', 'hover_html', 'hover_text'
-      - output_path: path to save docx file
-      - st_module: optional Streamlit module for logging
+    - preview_data: list of dict with 'title', 'hover_html', 'hover_text', 'metadata_line'
+    - output_path: path to save docx file
+    - st_module: optional Streamlit module for logging
     """
     from docx import Document
-    from docx.shared import Pt, RGBColor
+    from docx.shared import Pt
     from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
-    
+    import re
+    from .config import MEDIA_NAME_MAPPINGS 
+
     preview_data = kwargs.get('preview_data', [])
     output_path = kwargs.get('output_path')
     st = kwargs.get('st_module')
-    
+
     doc = Document()
-    
+
     # Add title
     title = doc.add_heading('國際新聞 - 懸停預覽報告', level=1)
     title.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    
+
     # Add date
-    date_para = doc.add_paragraph(f"生成日期: {datetime.now().strftime('%Y年%m月%d日')}")
-    date_para.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    
-    # Add summary
+    doc.add_paragraph(f"生成日期: {datetime.now().strftime('%Y年%m月%d日')}")\
+        .alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+
     doc.add_paragraph(f"總共找到 {len(preview_data)} 篇文章")
     doc.add_paragraph()
-    
-    # Add articles
-    for idx, item in enumerate(preview_data, 1):
-        # Article number and title
-        title_para = doc.add_heading(f"{idx}. {item.get('title', 'Unknown')}", level=2)
+
+    for item in preview_data:
+        # 1. Title (No numbering, just title)
+        article_title = item.get('title', 'Unknown')
+        doc.add_heading(article_title, level=2)
+
+        # 2. Metadata Line (Date | Media | Words)
+        raw_meta = item.get('metadata_line', '')
+        formatted_meta = raw_meta  # Default fallback
+
+        # Try to parse and format metadata
+        # Pattern looks for: Date ... Media ... WordCount
+        date_match = re.search(r'(\d{4}[-.]\d{2}[-.]\d{2})', raw_meta)
+        word_match = re.search(r'(\d+)\s*字', raw_meta)
+
+        if date_match:
+            date_str = date_match.group(1)
+            word_str = f"{word_match.group(1)} 字" if word_match else ""
+            
+            # Extract Media Name by removing date and words
+            # Also remove pipe symbols if they exist in raw
+            media_part = raw_meta
+            media_part = media_part.replace(date_str, '')
+            if word_match:
+                media_part = media_part.replace(word_match.group(0), '')
+            media_part = media_part.replace('|', '').strip()
+            
+            # Map Media Name (Long -> Short)
+            mapped_media = media_part
+            # Check exact matches first
+            if media_part in MEDIA_NAME_MAPPINGS:
+                mapped_media = MEDIA_NAME_MAPPINGS[media_part]
+            else:
+                # Check substring matches (e.g. '信報財經' -> '信報')
+                for k, v in MEDIA_NAME_MAPPINGS.items():
+                    if k in media_part:
+                        mapped_media = v
+                        break
+            
+            # Construct new format: Date | Media | Words
+            parts = [date_str, mapped_media, word_str]
+            formatted_meta = " | ".join([p for p in parts if p])
+
+        # Add Metadata Paragraph
+        meta_para = doc.add_paragraph(formatted_meta)
+        # Optional: Make it look slightly different (e.g. smaller text)
+        # meta_para.style = doc.styles['No Spacing'] 
+
+        # 3. Content Body (Cleaned)
+        # Get text from hover_text or strip HTML from hover_html
+        content_text = item.get('hover_text', '')
+        if not content_text:
+            import re
+            clean_html = re.sub('<[^<]+?>', '\n', item.get('hover_html', ''))
+            content_text = clean_html
+
+        # Clean up content: remove Title and Metadata if they appear at the start
+        lines = content_text.split('\n')
+        cleaned_lines = []
         
-        # Hover text/summary
-        hover_text = item.get('hover_text', '')
-        if hover_text:
-            doc.add_paragraph(f"摘要: {hover_text}")
-        else:
-            hover_html = item.get('hover_html', '')
-            if hover_html:
-                # Strip HTML tags for readability in Word
-                import re
-                clean_text = re.sub('<[^<]+?>', '', hover_html)
-                doc.add_paragraph(f"摘要: {clean_text}")
-        
+        for line in lines:
+            line = line.strip()
+            if not line: continue
+            
+            # Remove if line is identical to title
+            if line == article_title.strip():
+                continue
+                
+            # Remove if line looks like metadata (contains date and '字')
+            if re.search(r'\d{4}[-.]\d{2}[-.]\d{2}', line) and '字' in line:
+                continue
+                
+            cleaned_lines.append(line)
+            
+        final_content = '\n'.join(cleaned_lines)
+        doc.add_paragraph(final_content)
+
         # Separator
         doc.add_paragraph()
-    
+
     doc.save(output_path)
+
     if st:
         st.write(f"✅ Report saved to {output_path}")
+    
     return output_path
+
 
 
 @retry_step
