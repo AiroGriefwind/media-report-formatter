@@ -239,40 +239,72 @@ def create_hover_preview_report(**kwargs):
         formatted_meta = raw_meta  # Default fallback
 
         # Try to parse and format metadata
-        # Pattern looks for: Date ... Media ... WordCount
-        date_match = re.search(r'(\d{4}[-.]\d{2}[-.]\d{2})', raw_meta)
+        # 尝试匹配日期 (支持 YYYY-MM-DD 或 YYYY.MM.DD 或 YYYY年MM月DD日)
+        date_match = re.search(r'(\d{4}[-年.]\d{2}[-月.]\d{2})', raw_meta)
+        # 尝试匹配字数
         word_match = re.search(r'(\d+)\s*字', raw_meta)
 
+        # 如果没有日期，默认使用当天 (或者留空，看你需求)
         if date_match:
             date_str = date_match.group(1)
-            word_str = f"{word_match.group(1)} 字" if word_match else ""
-            
-            # Extract Media Name by removing date and words
-            # Also remove pipe symbols if they exist in raw
-            media_part = raw_meta
-            media_part = media_part.replace(date_str, '')
-            if word_match:
-                media_part = media_part.replace(word_match.group(0), '')
-            media_part = media_part.replace('|', '').strip()
-            
-            # Map Media Name (Long -> Short)
-            mapped_media = media_part
-            # Check exact matches first
-            if media_part in MEDIA_NAME_MAPPINGS:
-                mapped_media = MEDIA_NAME_MAPPINGS[media_part]
-            else:
-                # Check substring matches (e.g. '信報財經' -> '信報')
-                for k, v in MEDIA_NAME_MAPPINGS.items():
-                    if k in media_part:
-                        mapped_media = v
-                        break
-            
-            # Construct new format: Date | Media | Words
-            parts = [date_str, mapped_media, word_str]
-            formatted_meta = " | ".join([p for p in parts if p])
+            # 统一日期格式为 YYYY-MM-DD
+            date_str = date_str.replace('年', '-').replace('月', '-').replace('日', '').replace('.', '-')
+        else:
+            # 如果元数据里没日期，可以暂且用当天，或者根据实际情况处理
+            # 很多列表页 metadata 只有 "媒体名 字数"
+            date_str = datetime.now().strftime('%Y-%m-%d')
 
+        if word_match:
+            word_str = f"{word_match.group(1)} 字"
+        else:
+            word_str = ""
+
+        # 提取媒体名：把日期和字数剔除掉，剩下的就是媒体名
+        media_part = raw_meta
+        if date_match:
+            media_part = media_part.replace(date_match.group(0), '') # 剔除原始日期字符串
+        if word_match:
+            media_part = media_part.replace(word_match.group(0), '') # 剔除原始字数
+        
+        # 清理多余符号
+        media_part = media_part.replace('|', '').strip()
+        
+        # 媒体名映射 (Long -> Short)
+        mapped_media = media_part
+        # Check exact matches first
+        if media_part in MEDIA_NAME_MAPPINGS:
+            mapped_media = MEDIA_NAME_MAPPINGS[media_part]
+        else:
+            # Check substring matches
+            for k, v in MEDIA_NAME_MAPPINGS.items():
+                if k in media_part:
+                    mapped_media = v
+                    break
+        
+        # 如果媒体名为空（比如原文只有日期和字数），尝试给一个默认值或者留空
+        if not mapped_media and not date_match and not word_match:
+             # 极端情况：raw_meta 也是空的
+             pass
+        elif not mapped_media:
+             # 有可能 raw_meta 就是 "明報" 这种纯名字
+             # 上面的 replace 逻辑可能会把它处理完
+             # 如果剔除后只剩空字符串，说明 raw_meta 本身就是日期或字数？不太可能
+             # 这是一个兜底
+             pass
+
+        # 重新构建格式: Date | Media | Words
+        # 只有当该字段有值时才加入
+        parts = []
+        if date_str: parts.append(date_str)
+        if mapped_media: parts.append(mapped_media)
+        if word_str: parts.append(word_str)
+        
+        if parts:
+            formatted_meta = " | ".join(parts)
+        
         # Add Metadata Paragraph
-        meta_para = doc.add_paragraph(formatted_meta)
+        doc.add_paragraph(formatted_meta)
+        
         # Optional: Make it look slightly different (e.g. smaller text)
         # meta_para.style = doc.styles['No Spacing'] 
 
