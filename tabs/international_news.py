@@ -26,7 +26,7 @@ from utils.international_news_utils import (
     create_international_news_report
 )
 
-# === UI 輔助函數 (來自您的 article_manager.py) ===
+# === UI 輔助函數  ===
 
 def move_article(location, index, direction):
     """Move article up or down within its category"""
@@ -122,9 +122,9 @@ def render_article_card(article, index, location, total_count):
 
 # === 主流程函數 ===
 
-def _handle_international_hover_preview(
+def _handle_international_news_logic(
     group_name_intl, username_intl, password_intl, api_key_intl,
-    run_headless_intl, keep_browser_open_intl, max_words, min_words,
+    run_headless_intl, keep_browser_open_intl, max_words, min_words
 ):
     """
     Revised flow with Mobile-First Drag & Drop UI
@@ -297,3 +297,54 @@ def _handle_international_hover_preview(
     except Exception as e:
         st.error(f"發生未預期的錯誤: {e}")
         st.code(traceback.format_exc())
+
+def render_international_news_tab():
+    """
+    Render the International News tab content
+    """
+    st.header("International News")
+    
+    # 1. 獲取憑證 (這部分邏輯從原來的 international_news.py 搬過來)
+    # Helper to get credentials
+    def _get_credentials_intl():
+        try:
+            group_name = st.secrets["wisers"]["group_name"]
+            username = st.secrets["wisers"]["username"]
+            password = st.secrets["wisers"]["password"]
+            return group_name, username, password
+        except:
+            return None, None, None
+
+    def _get_api_key_intl():
+        try:
+            return st.secrets["wisers"]["api_key"]
+        except:
+            return None
+
+    # Sidebar Options
+    with st.sidebar:
+        st.subheader("International News Settings")
+        max_words = st.slider("Max Words", 200, 2000, 1000)
+        min_words = st.slider("Min Words", 50, 500, 200)
+        run_headless = st.checkbox("Headless Mode", value=True)
+        keep_open = st.checkbox("Keep Browser Open", value=False)
+        
+        # Credentials Input (Fallback)
+        group, user, pwd = _get_credentials_intl()
+        api_key = _get_api_key_intl()
+        
+        if not all([group, user, pwd, api_key]):
+            st.warning("請在 secrets.toml 配置憑證，或在此輸入：")
+            group = st.text_input("Group", value=group or "")
+            user = st.text_input("User", value=user or "")
+            pwd = st.text_input("Password", type="password", value=pwd or "")
+            api_key = st.text_input("2Captcha Key", type="password", value=api_key or "")
+
+    # 2. 執行主邏輯
+    if all([group, user, pwd, api_key]):
+        _handle_international_news_logic(
+            group, user, pwd, api_key,
+            run_headless, keep_open, max_words, min_words
+        )
+    else:
+        st.error("請提供完整的 Wisers 帳號密碼及 API Key 才能開始。")
