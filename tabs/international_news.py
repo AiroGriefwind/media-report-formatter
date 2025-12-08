@@ -157,7 +157,16 @@ def _handle_international_news_logic(
                     
                     # Scrape Popovers
                     raw_list = scrape_hover_popovers(driver=driver, wait=wait, st_module=st)
-                    driver.quit() # 暫時關閉，節省資源
+                    
+                    # ✅ IMPORTANT: Logout before quitting to prevent session lock
+                    st.info("暫時登出以釋放 Session...")
+                    try:
+                        # 嘗試標準登出，如果失敗則強制登出
+                        robust_logout_request(driver, st)
+                    except Exception as e:
+                        st.warning(f"登出時發生小問題 (不影響流程): {e}")
+                    
+                    driver.quit() # 關閉瀏覽器
                     
                     # Filter
                     filtered_list = []
