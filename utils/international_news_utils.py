@@ -26,6 +26,7 @@ from .wisers_utils import (
     wait_for_ajax_complete,
 )
 
+
 @retry_step
 def run_international_news_task(**kwargs):
     """Search for international news articles with fallback mechanisms"""
@@ -476,6 +477,101 @@ def scrape_international_articles_sequentially(**kwargs):
         st.write(f"• Articles skipped: {len(skipped_articles)}")
 
     return scraped_articles, skipped_articles
+
+def scrape_specific_articles_by_indices(driver, wait, articles_to_scrape, st_module=None):
+    """
+    Scrape full content for a specific list of articles based on their original index on the search page.
+    
+    articles_to_scrape: List of dicts, must contain 'original_index' (int) and 'title' (str).
+    """
+    scraped_data = []
+    original_window = driver.current_window_handle
+    
+    total = len(articles_to_scrape)
+    
+    if st_module:
+        progress_bar = st_module.progress(0)
+        status_text = st_module.empty()
+    
+    for i, item in enumerate(articles_to_scrape):
+        idx = item.get('original_index')
+        title = item.get('title', 'Unknown')
+        
+        if idx is None:
+            if st_module: st_module.warning(f"Skipping {title}: No original index found.")
+            continue
+            
+        try:
+            if st_module:
+                status_text.text(f"Scraping {i+1}/{total}: {title}...")
+                progress_bar.progress((i) / total)
+            
+            # 1. Re-locate the element on the search results page
+            # We need to find all items again to ensure freshness, then pick the [idx] one
+            all_results = driver.find_elements(By.CSS_SELECTOR, 'div.list-group-item.no-excerpt')
+            
+            if idx >= len(all_results):
+                if st_module: st_module.warning(f"Index {idx} is out of range (Total: {len(all_results)}). Skipping.")
+                continue
+                
+            target_element = all_results[idx]
+            
+            # 2. Click logic (Same as scrape_international_articles_sequentially)
+            article_link = target_element.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a')
+            article_link.click()
+            
+            # 3. Handle window switching
+            wait.until(EC.number_of_windows_to_be(2))
+            for window_handle in driver.window_handles:
+                if window_handle != original_window:
+                    driver.switch_to.window(window_handle)
+                    break
+            
+            # 4. Scrape content
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.article-detail')))
+            time.sleep(1.5)
+            
+            # Extract Data
+            full_title = driver.find_element(By.CSS_SELECTOR, 'h3').text.strip()
+            try:
+                meta_el = driver.find_element(By.CSS_SELECTOR, 'div.article-subheading')
+                full_metadata = meta_el.text.strip()
+            except:
+                full_metadata = ""
+                
+            paragraphs = [p.text.strip() for p in driver.find_elements(By.CSS_SELECTOR, 'div.description p') if p.text.strip()]
+            content_body = '\n\n'.join(paragraphs)
+            
+            article_data = {
+                'title': full_title,
+                'metadata_line': full_metadata,
+                'content': content_body,
+                'full_text': f"{full_title}\n\n{full_metadata}\n\n{content_body}"
+            }
+            
+            # Preserve AI analysis if it exists
+            if 'ai_analysis' in item:
+                article_data['ai_analysis'] = item['ai_analysis']
+                
+            scraped_data.append(article_data)
+            
+            # 5. Close and return
+            driver.close()
+            driver.switch_to.window(original_window)
+            time.sleep(0.5)
+            
+        except Exception as e:
+            if st_module: st_module.error(f"Failed to scrape {title}: {e}")
+            try:
+                driver.switch_to.window(original_window)
+            except:
+                pass
+    
+    if st_module:
+        progress_bar.progress(1.0)
+        status_text.text("Scraping complete!")
+        
+    return scraped_data
 
 
 @retry_step
