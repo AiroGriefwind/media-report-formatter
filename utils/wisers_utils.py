@@ -430,7 +430,16 @@ def robust_logout_request(driver, st_module=None):
         if st_module:
             st_module.write(f"Found {len(selenium_cookies)} cookies from driver")
             
-        session_cookies = {cookie['name']: cookie['value'] for cookie in selenium_cookies}
+        session_cookies = {}
+        skipped_count = 0
+        for cookie in selenium_cookies:
+            try:
+                cookie['value'].encode('latin-1')  # 測試是否能安全編碼
+                session_cookies[cookie['name']] = cookie['value']
+            except (UnicodeEncodeError, UnicodeDecodeError, AttributeError):
+                skipped_count += 1
+                continue
+
         
         # Get current timestamp for the logout URL
         current_timestamp = int(time.time() * 1000)
