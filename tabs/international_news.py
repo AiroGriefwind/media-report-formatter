@@ -51,6 +51,36 @@ if 'intl_articles_list' not in st.session_state:
 
 # === UI 輔助函數  ===
 
+# 🔥 智能檢查今日進度函數
+def check_today_progress():
+    """檢查 Firebase 中今日三個文件的存在狀態"""
+    preview_exists = bool(fb_logger.load_json_from_date_folder('preview_articles.json', []))
+    user_list_exists = bool(fb_logger.load_json_from_date_folder('user_final_list.json', {}))
+    final_articles_exists = bool(fb_logger.load_json_from_date_folder('full_scraped_articles.json', []))
+    
+    total_preview = len(fb_logger.load_json_from_date_folder('preview_articles.json', []))
+    total_user_list = sum(len(v) for v in fb_logger.load_json_from_date_folder('user_final_list.json', {}).values())
+    
+    return {
+        'preview': preview_exists,
+        'user_list': user_list_exists,
+        'final_articles': final_articles_exists,
+        'preview_count': total_preview,
+        'user_list_count': total_user_list
+    }
+
+# 🔥 恢復進度函數
+def restore_progress(stage):
+    """一鍵恢復指定階段的進度"""
+    if stage == "ui_sorting":
+        st.session_state.intl_sorted_dict = fb_logger.load_json_from_date_folder('user_final_list.json', {})
+        st.session_state.intl_stage = "ui_sorting"
+    elif stage == "finished":
+        st.session_state.intl_final_articles = fb_logger.load_json_from_date_folder('full_scraped_articles.json', [])
+        st.session_state.intl_final_docx = None  # 需要重新生成下載鏈接
+        st.session_state.intl_stage = "finished"
+    st.rerun()
+
 def move_article(location, index, direction):
     """Move article up or down within its category"""
     articles = st.session_state.intl_sorted_dict[location]
@@ -152,20 +182,92 @@ def _handle_international_news_logic(
     """
     Revised flow with Firebase persistence + Mobile-First UI
     """
-    # 初始化 Session State
-    if "intl_stage" not in st.session_state:
-        st.session_state.intl_stage = "init" 
-    if "intl_sorted_dict" not in st.session_state:
-        st.session_state.intl_sorted_dict = {}
-    if "intl_last_update" not in st.session_state:
-        st.session_state.intl_last_update = 0
+    """
+    Revised flow with Firebase persistence + Smart Home UI
+    """
+    
+    # 🔥 ✅ 智能檢查今日進度函數（新增）
+    def check_today_progress():
+        """檢查 Firebase 中今日三個文件的存在狀態"""
+        preview_exists = bool(fb_logger.load_json_from_date_folder('preview_articles.json', []))
+        user_list_exists = bool(fb_logger.load_json_from_date_folder('user_final_list.json', {}))
+        final_articles_exists = bool(fb_logger.load_json_from_date_folder('full_scraped_articles.json', []))
+        
+        total_preview = len(fb_logger.load_json_from_date_folder('preview_articles.json', []))
+        total_user_list = sum(len(v) for v in fb_logger.load_json_from_date_folder('user_final_list.json', {}).values())
+        
+        return {
+            'preview': preview_exists,
+            'user_list': user_list_exists,
+            'final_articles': final_articles_exists,
+            'preview_count': total_preview,
+            'user_list_count': total_user_list
+        }
 
-    # ✅ 確保 fb_logger 可用
+    # 🔥 ✅ 恢復進度函數（新增）
+    def restore_progress(stage):
+        """一鍵恢復指定階段的進度"""
+        if stage == "ui_sorting":
+            st.session_state.intl_sorted_dict = fb_logger.load_json_from_date_folder('user_final_list.json', {})
+            st.session_state.intl_stage = "ui_sorting"
+        elif stage == "finished":
+            st.session_state.intl_final_articles = fb_logger.load_json_from_date_folder('full_scraped_articles.json', [])
+            st.session_state.intl_stage = "finished"
+        st.rerun()
+
+    # ✅ 確保 fb_logger 可用（保留原有的）
     fb_logger = st.session_state.get('fb_logger') or ensure_logger(st, run_context="international_news")
 
-    # Locations Order
+    # Locations Order（保留原有的）
     LOCATION_ORDER = ['United States', 'Russia', 'Europe', 'Middle East', 
                       'Southeast Asia', 'Japan', 'Korea', 'China', 'Others', 'Tech News']
+
+    # 🔥 ✅ 智能首頁邏輯（新增，完全替換原開頭初始化）
+    if "intl_stage" not in st.session_state or st.session_state.intl_stage not in ["ui_sorting", "final_scraping", "finished"]:
+        st.session_state.intl_stage = "smart_home"
+    
+    if st.session_state.intl_stage == "smart_home":
+        st.header("🌐 國際新聞 - 智能進度恢復")
+        st.info(f"📁 檢查 Firebase: `international_news/{TODAY}/`")
+        
+        # 🔥 檢查進度
+        progress = check_today_progress()
+        
+        # 🔥 進度卡片
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("預覽文章", f"{progress['preview_count']} 篇", 
+                     "✅ 已存在" if progress['preview'] else "❌ 無資料")
+        with col2:
+            st.metric("用戶排序", f"{progress['user_list_count']} 篇", 
+                     "✅ 可恢復" if progress['user_list'] else "❌ 無資料")
+        with col3:
+            st.metric("最終全文", f"{len(fb_logger.load_json_from_date_folder('full_scraped_articles.json', []))} 篇", 
+                     "✅ 已完成" if progress['final_articles'] else "❌ 未完成")
+        
+        st.divider()
+        
+        # 🔥 大按鈕區域
+        if progress['user_list']:
+            st.error("🔥 發現今日排序進度！建議先恢復繼續工作")
+            if st.button("✅ 恢復排序界面（推薦）", type="primary", use_container_width=True):
+                restore_progress("ui_sorting")
+        elif progress['preview']:
+            st.warning("📄 有預覽資料，建議重新 AI 分析")
+            if st.button("🔄 重新 AI 分析排序", type="secondary", use_container_width=True):
+                st.session_state.intl_articles_list = fb_logger.load_json_from_date_folder('preview_articles.json', [])
+                st.session_state.intl_stage = "init"
+                st.rerun()
+        else:
+            st.success("🆕 今日全新開始")
+        
+        if st.button("🚀 新任務（忽略現有進度）", type="secondary"):
+            for key in ['intl_stage', 'intl_sorted_dict', 'intl_final_articles', 'intl_articles_list']:
+                if key in st.session_state: del st.session_state[key]
+            st.session_state.intl_stage = "init"
+            st.rerun()
+        
+        st.stop()  # 🔥 終止在此
 
     try:
         # === Stage 1: Login, Search, Preview, AI Analysis ===
