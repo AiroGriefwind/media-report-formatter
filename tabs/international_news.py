@@ -220,7 +220,7 @@ def _handle_international_news_logic(
                       'Southeast Asia', 'Japan', 'Korea', 'China', 'Others', 'Tech News']
 
     # 🔥 ✅ 智能首頁邏輯（新增，完全替換原開頭初始化）
-    if "intl_stage" not in st.session_state or st.session_state.intl_stage not in ["ui_sorting", "final_scraping", "finished"]:
+    if "intl_stage" not in st.session_state:
         st.session_state.intl_stage = "smart_home"
     
     if st.session_state.intl_stage == "smart_home":
