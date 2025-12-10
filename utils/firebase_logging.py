@@ -5,11 +5,13 @@ import datetime as dt
 import pytz
 import os
 import json
-
+import tempfile  # ✅ 新增
 import firebase_admin
 from firebase_admin import credentials, db, storage
 
+
 HKT = pytz.timezone('Asia/Hong_Kong')
+TODAY = datetime.now(HKT).strftime("%Y%m%d")
 
 _LOGGER = None  # kept for backward compatibility, but we now prefer session_state
 
@@ -95,6 +97,30 @@ class FirebaseLogger:
         self.local_log_events.append(payload)
         # DO NOT: self.events_ref.push(payload)
 
+    def save_json_to_date_folder(self, data, filename):
+        """存 JSON 到今日資料夾"""
+        folder_path = f"international_news/{TODAY}/"
+        remote_path = f"{folder_path}{filename}"
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
+            json.dump(data, tmp, ensure_ascii=False, indent=2)
+            tmp_path = tmp.name
+        gs_url = self.upload_file_to_firebase(tmp_path, remote_path)
+        os.unlink(tmp_path)
+        return gs_url
+
+    def load_json_from_date_folder(self, filename, default=[]):
+        """載入今日資料夾 JSON，若無則返回 default"""
+        folder_path = f"international_news/{TODAY}/"
+        remote_path = f"{folder_path}{filename}"
+        try:
+            blob = self.bucket.blob(remote_path)
+            if blob.exists():
+                content = blob.download_as_string().decode('utf-8')
+                return json.loads(content)
+        except:
+            pass
+        return default
+
     def upload_file_to_firebase(self, local_fp, remote_path):
         blob = self.bucket.blob(remote_path)
         blob.upload_from_filename(local_fp)
@@ -162,3 +188,4 @@ def patch_streamlit_logging(st):
 
         setattr(st, name, make_logged(orig))
     return originals
+

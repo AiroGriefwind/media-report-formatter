@@ -6,6 +6,11 @@ from datetime import datetime
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
 
+import pytz  # ✅ 新增 TODAY 用
+
+HKT = pytz.timezone('Asia/Hong_Kong')
+TODAY = datetime.now(HKT).strftime("%Y%m%d")  # ✅ 全域 TODAY
+
 # 引入 AI 工具
 from utils.ai_screening_utils import run_ai_screening
 
@@ -25,6 +30,24 @@ from utils.international_news_utils import (
     scrape_specific_articles_by_indices,
     create_international_news_report
 )
+
+# 引入 Firebase Logger
+from utils.firebase_logging import ensure_logger
+
+# ✅ 初始化 logger（修正：確保 st 已存在）
+if 'fb_logger' not in st.session_state:
+    st.session_state['fb_logger'] = ensure_logger(st, run_context="international_news")
+fb_logger = st.session_state['fb_logger']
+
+# ✅ 修正：session_state 初始化移到這裡，且加 TODAY
+if 'intl_articles_list' not in st.session_state:
+    # 載入既有資料
+    st.session_state.intl_articles_list = fb_logger.load_json_from_date_folder('preview_articles.json', [])
+    st.session_state.intl_sorted_dict = fb_logger.load_json_from_date_folder('user_final_list.json', {})
+    st.session_state.intl_final_articles = fb_logger.load_json_from_date_folder('full_scraped_articles.json', [])
+    if st.session_state.intl_articles_list:
+        st.success(f"✅ 已載入今日 {TODAY} 預覽資料，避免重爬！")
+        st.info(f"📁 Firebase 路徑: international_news/{TODAY}/")
 
 # === UI 輔助函數  ===
 
@@ -127,7 +150,7 @@ def _handle_international_news_logic(
     run_headless_intl, keep_browser_open_intl, max_words, min_words
 ):
     """
-    Revised flow with Mobile-First Drag & Drop UI
+    Revised flow with Firebase persistence + Mobile-First UI
     """
     # 初始化 Session State
     if "intl_stage" not in st.session_state:
@@ -136,6 +159,9 @@ def _handle_international_news_logic(
         st.session_state.intl_sorted_dict = {}
     if "intl_last_update" not in st.session_state:
         st.session_state.intl_last_update = 0
+
+    # ✅ 確保 fb_logger 可用
+    fb_logger = st.session_state.get('fb_logger') or ensure_logger(st, run_context="international_news")
 
     # Locations Order
     LOCATION_ORDER = ['United States', 'Russia', 'Europe', 'Middle East', 
@@ -155,55 +181,50 @@ def _handle_international_news_logic(
                     
                     run_international_news_task(driver=driver, wait=wait, st_module=st)
                     
+                    # ✅ 保存原始預覽列表
+                    fb_logger.save_json_to_date_folder(st.session_state.intl_articles_list, 'preview_articles.json')
+
                     # Scrape Popovers
                     raw_list = scrape_hover_popovers(driver=driver, wait=wait, st_module=st)
                     
-                    # ✅ IMPORTANT: Logout before quitting to prevent session lock
+                    # Logout before quitting
                     st.info("暫時登出以釋放 Session...")
                     try:
-                        # 嘗試標準登出，如果失敗則強制登出
                         robust_logout_request(driver, st)
                     except Exception as e:
                         st.warning(f"登出時發生小問題 (不影響流程): {e}")
                     
-                    driver.quit() # 關閉瀏覽器
-                    
-                    # Filter
+                    driver.quit()
+
+                    # Filter & AI Analysis
                     filtered_list = []
                     for i, item in enumerate(raw_list):
                         item['original_index'] = i
-                        meta = item.get('hover_html', '') # 這裡簡化，直接用內容判斷或後續處理
-                        # Note: 簡單過濾邏輯，這裡假設 scrape_hover_popovers 已經盡力抓了
                         filtered_list.append(item)
-                
-                with st.spinner(f"第二步：AI 正在分析 {len(filtered_list)} 篇文章..."):
-                    # AI Analysis
-                    analyzed_list = run_ai_screening(
-                        filtered_list,
-                        progress_callback=lambda i, n, t: st.text(f"分析中 ({i+1}/{n}): {t}...")
-                    )
                     
-                    # Group by Location for UI
+                    with st.spinner(f"第二步：AI 正在分析 {len(filtered_list)} 篇文章..."):
+                        analyzed_list = run_ai_screening(
+                            filtered_list,
+                            progress_callback=lambda i, n, t: st.text(f"分析中 ({i+1}/{n}): {t}...")
+                        )
+                    
+                    # Group by Location
                     grouped_data = {loc: [] for loc in LOCATION_ORDER}
                     for item in analyzed_list:
                         loc = item.get('ai_analysis', {}).get('main_location', 'Others')
-                        # Tech news override
                         if item.get('ai_analysis', {}).get('is_tech_news', False):
                             loc = 'Tech News'
-                        
-                        # Normalize to known keys
                         if loc not in grouped_data: loc = 'Others'
-                        
                         grouped_data[loc].append(item)
                     
                     st.session_state.intl_sorted_dict = grouped_data
                     st.session_state.intl_stage = "ui_sorting"
                     st.rerun()
 
-        # === Stage 2: UI Sorting (Mobile Friendly) ===
+        # === Stage 2: UI Sorting（自動保存） ===
         if st.session_state.intl_stage == "ui_sorting":
             st.header("📱 新聞排序與篩選")
-            st.info("請點擊分類標籤展開，使用按鈕調整順序。完成後點擊底部的確認按鈕。")
+            st.info(f"💾 自動保存至 Firebase: `international_news/{TODAY}/user_final_list.json`")
             
             # Global Actions
             col_g1, col_g2 = st.columns(2)
@@ -211,7 +232,11 @@ def _handle_international_news_logic(
                 if st.button("🔄 重新開始 (清除數據)"):
                     st.session_state.intl_stage = "init"
                     st.rerun()
-            
+            with col_g2:
+                if st.button("💾 手動保存排序"):
+                    fb_logger.save_json_to_date_folder(st.session_state.intl_sorted_dict, 'user_final_list.json')
+                    st.success("✅ 已保存用戶排序清單！")
+
             st.write("---")
             
             # Calculate counts
@@ -221,8 +246,7 @@ def _handle_international_news_logic(
             # Render Categories
             for location in LOCATION_ORDER:
                 articles = st.session_state.intl_sorted_dict.get(location, [])
-                if not articles:
-                    continue
+                if not articles: continue
                 
                 with st.expander(f"{location} ({len(articles)})", expanded=True):
                     for i, article in enumerate(articles):
@@ -230,16 +254,18 @@ def _handle_international_news_logic(
 
             st.write("---")
             
-            # Final Confirm Button
+            # ✅ 關鍵：確認前自動保存
             if st.button("✅ 確認排序並開始全文爬取", type="primary", use_container_width=True):
+                fb_logger.save_json_to_date_folder(st.session_state.intl_sorted_dict, 'user_final_list.json')
+                st.success("💾 用戶排序已自動保存至 Firebase")
                 st.session_state.intl_stage = "final_scraping"
                 st.rerun()
 
-        # === Stage 3: Final Scrape & Download ===
+        # === Stage 3: Final Scrape ===
         if st.session_state.intl_stage == "final_scraping":
             st.header("⏳ 最終處理中...")
             
-            # Flatten the dictionary back to a list based on UI order
+            # Flatten list
             final_list = []
             for loc in LOCATION_ORDER:
                 if loc in st.session_state.intl_sorted_dict:
@@ -252,7 +278,6 @@ def _handle_international_news_logic(
                     st.rerun()
                 st.stop()
 
-            # Execute Scrape
             with st.spinner(f"正在爬取 {len(final_list)} 篇文章的全文內容..."):
                 try:
                     driver = setup_webdriver(headless=run_headless_intl, st_module=st)
@@ -261,8 +286,11 @@ def _handle_international_news_logic(
                     switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
                     run_international_news_task(driver=driver, wait=wait, st_module=st)
                     
-                    # Scrape specific articles
                     full_articles_data = scrape_specific_articles_by_indices(driver, wait, final_list, st_module=st)
+                    
+                    # ✅ 保存最終爬取結果
+                    st.session_state.intl_final_articles = full_articles_data
+                    fb_logger.save_json_to_date_folder(full_articles_data, 'full_scraped_articles.json')
                     
                     # Generate Docx
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
@@ -273,7 +301,7 @@ def _handle_international_news_logic(
                         )
                         with open(out_path, "rb") as f:
                             file_data = f.read()
-                            
+                    
                     st.session_state.intl_final_docx = file_data
                     st.session_state.intl_stage = "finished"
                     
@@ -293,7 +321,7 @@ def _handle_international_news_logic(
             st.download_button(
                 label="📥 下載最終 Word 報告",
                 data=st.session_state.intl_final_docx,
-                file_name=f"Intl_News_Report_{datetime.now().strftime('%Y%m%d')}.docx",
+                file_name=f"Intl_News_Report_{TODAY}.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 type="primary",
                 use_container_width=True
@@ -306,6 +334,7 @@ def _handle_international_news_logic(
     except Exception as e:
         st.error(f"發生未預期的錯誤: {e}")
         st.code(traceback.format_exc())
+
 
 def render_international_news_tab():
     """
