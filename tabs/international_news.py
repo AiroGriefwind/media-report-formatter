@@ -284,6 +284,20 @@ def _handle_international_news_logic(
                 st.rerun()
         
         st.stop()
+    
+    elif st.session_state.intl_stage == "data_viewer":
+        st.header("📋 JSON 數據檢視")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.json(fb_logger.load_json_from_date_folder('preview_articles.json', []))
+        with col2:
+            st.json(fb_logger.load_json_from_date_folder('user_final_list.json', {}))
+        with col3:
+            st.json(fb_logger.load_json_from_date_folder('full_scraped_articles.json', []))
+        if st.button("返回進度頁"):
+            st.session_state.intl_stage = "smart_home"
+            st.rerun()
+        st.stop()
 
     try:
         # === Stage 1: Login, Search, Preview, AI Analysis ===
