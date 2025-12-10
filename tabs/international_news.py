@@ -228,46 +228,62 @@ def _handle_international_news_logic(
     
     if st.session_state.intl_stage == "smart_home":
         st.header("🌐 國際新聞 - 智能進度恢復")
-        st.info(f"📁 檢查 Firebase: `international_news/{TODAY}/`")
+        st.info(f"📁 Firebase: `international_news/{TODAY}/` | {datetime.now().strftime('%H:%M')}")
         
         # 🔥 檢查進度
         progress = check_today_progress()
         
-        # 🔥 進度卡片
+        # 🔥 美化進度儀表板
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("預覽文章", f"{progress['preview_count']} 篇", 
-                     "✅ 已存在" if progress['preview'] else "❌ 無資料")
+            st.metric("📄 預覽文章", f"{progress['preview_count']} 篇", 
+                    "✅" if progress['preview'] else "❌")
         with col2:
-            st.metric("用戶排序", f"{progress['user_list_count']} 篇", 
-                     "✅ 可恢復" if progress['user_list'] else "❌ 無資料")
+            st.metric("👤 用戶排序", f"{progress['user_list_count']} 篇", 
+                    "✅" if progress['user_list'] else "❌")
         with col3:
-            st.metric("最終全文", f"{len(fb_logger.load_json_from_date_folder('full_scraped_articles.json', []))} 篇", 
-                     "✅ 已完成" if progress['final_articles'] else "❌ 未完成")
+            st.metric("✅ 最終全文", f"{len(fb_logger.load_json_from_date_folder('full_scraped_articles.json', []))} 篇", 
+                    "✅" if progress['final_articles'] else "❌")
         
         st.divider()
         
-        # 🔥 大按鈕區域
-        if progress['user_list']:
-            st.error("🔥 發現今日排序進度！建議先恢復繼續工作")
-            if st.button("✅ 恢復排序界面（推薦）", type="primary", use_container_width=True):
+        # 🔥 三選一按鈕（依優先順序）
+        if progress['final_articles']:  # 100% 完成
+            st.success("🎉 **今日任務已100%完成！立即下載最終報告**")
+            if st.button("📥 下載最終 Word 報告（100%進度）", type="primary", use_container_width=True):
+                restore_progress("finished")
+        elif progress['user_list']:     # 50% 排序完成
+            st.warning("⏳ **今日已完成50%（用戶排序），繼續全文爬取**")
+            if st.button("👤 恢復排序界面繼續（50%進度）", type="primary", use_container_width=True):
                 restore_progress("ui_sorting")
-        elif progress['preview']:
-            st.warning("📄 有預覽資料，建議重新 AI 分析")
-            if st.button("🔄 重新 AI 分析排序", type="secondary", use_container_width=True):
+        elif progress['preview']:       # 25% 預覽完成
+            st.info("🔄 **今日已有預覽資料，跳過爬取直接AI分析**")
+            if st.button("🔄 重新AI分析排序（25%進度）", type="secondary", use_container_width=True):
                 st.session_state.intl_articles_list = fb_logger.load_json_from_date_folder('preview_articles.json', [])
                 st.session_state.intl_stage = "init"
                 st.rerun()
-        else:
-            st.success("🆕 今日全新開始")
+        else:                           # 0% 全新開始
+            st.success("🆕 **今日全新任務，開始抓取預覽**")
+            if st.button("🚀 開始新任務（0%進度）", type="primary", use_container_width=True):
+                st.session_state.intl_stage = "init"
+                st.rerun()
         
-        if st.button("🚀 新任務（忽略現有進度）", type="secondary"):
-            for key in ['intl_stage', 'intl_sorted_dict', 'intl_final_articles', 'intl_articles_list']:
-                if key in st.session_state: del st.session_state[key]
-            st.session_state.intl_stage = "init"
-            st.rerun()
+        st.divider()
         
-        st.stop()  # 🔥 終止在此
+        # 🔥 備用選項（小按鈕）
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            if st.button("🔄 忽略進度重來", type="secondary"):
+                for key in ['intl_stage', 'intl_sorted_dict', 'intl_final_articles', 'intl_articles_list']:
+                    if key in st.session_state: del st.session_state[key]
+                st.session_state.intl_stage = "init"
+                st.rerun()
+        with col_b:
+            if st.button("📋 查看 JSON 數據", type="secondary"):
+                st.session_state.intl_stage = "data_viewer"
+                st.rerun()
+        
+        st.stop()
 
     try:
         # === Stage 1: Login, Search, Preview, AI Analysis ===
