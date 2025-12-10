@@ -182,9 +182,6 @@ def _handle_international_news_logic(
     """
     Revised flow with Firebase persistence + Mobile-First UI
     """
-    """
-    Revised flow with Firebase persistence + Smart Home UI
-    """
     
     # 🔥 ✅ 智能檢查今日進度函數（新增）
     def check_today_progress():
@@ -433,10 +430,13 @@ def _handle_international_news_logic(
                         )
                         with open(out_path, "rb") as f:
                             file_data = f.read()
-                    
+
                     st.session_state.intl_final_docx = file_data
+
+                    # ✅ 這裡保存 final_report 到 Firebase
+                    fb_logger.save_final_docx_to_date_folder(full_articles_data, 'final_report.docx')
+
                     st.session_state.intl_stage = "finished"
-                    
                     robust_logout_request(driver, st)
                     driver.quit()
                     st.rerun()
