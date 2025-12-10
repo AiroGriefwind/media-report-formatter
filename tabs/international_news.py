@@ -284,6 +284,9 @@ def _handle_international_news_logic(
     
     elif st.session_state.intl_stage == "data_viewer":
         st.header("📋 JSON 數據檢視")
+        if st.button("返回進度頁"):
+            st.session_state.intl_stage = "smart_home"
+            st.rerun()
         col1, col2, col3 = st.columns(3)
         with col1:
             st.json(fb_logger.load_json_from_date_folder('preview_articles.json', []))
