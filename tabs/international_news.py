@@ -410,27 +410,60 @@ def _handle_international_news_logic(
                     robust_logout_request(driver, st)
                     driver.quit()
                     st.rerun()
+
+                    # 在 final_scraping 階段，生成 DOCX 後新增：
+                    fb_logger.save_final_docx_to_date_folder(full_articles_data, 'final_report.docx')
+
                     
                 except Exception as e:
                     st.error(f"爬取失敗: {e}")
                     if st.button("重試"):
                         st.rerun()
 
-        # === Stage 4: Download ===
+        # === Stage 4: Download（完全替換） ===
         if st.session_state.intl_stage == "finished":
-            st.success("🎉 任務全部完成！")
+            st.header("🎉 任務全部完成！")
             
+            # 🔥 智能重新生成/載入 DOCX
+            if 'intl_final_docx' not in st.session_state or not st.session_state.intl_final_docx:
+                with st.spinner("🔄 從 Firebase 重新生成下載文件..."):
+                    # 優先從已保存的 DOCX 文件載入
+                    docx_bytes = fb_logger.load_final_docx_from_date_folder('final_report.docx')
+                    if not docx_bytes:
+                        # 備用方案：從文章數據重新生成
+                        final_articles = st.session_state.get('intl_final_articles', fb_logger.load_json_from_date_folder('full_scraped_articles.json', []))
+                        if final_articles:
+                            docx_bytes = fb_logger.save_final_docx_to_date_folder(final_articles, 'final_report.docx')
+                            docx_bytes = fb_logger.load_final_docx_from_date_folder('final_report.docx')
+                    
+                    if docx_bytes:
+                        st.session_state.intl_final_docx = docx_bytes
+                    else:
+                        st.error("❌ 無法恢復最終報告，請重新執行爬取")
+                        st.stop()
+            
+            # ✅ 下載按鈕
             st.download_button(
                 label="📥 下載最終 Word 報告",
                 data=st.session_state.intl_final_docx,
                 file_name=f"Intl_News_Report_{TODAY}.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 type="primary",
-                use_container_width=True
+                use_container_width=True,
+                help="包含今日最終排序的完整新聞報告"
             )
             
+            # 🔥 進度摘要
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("總文章數", len(st.session_state.get('intl_final_articles', [])))
+            with col2:
+                st.metric("Firebase 狀態", "✅ 完整備份")
+            
+            st.success(f"💾 完整備份: `international_news/{TODAY}/`")
+            
             if st.button("🔄 開始新任務"):
-                st.session_state.intl_stage = "init"
+                st.session_state.intl_stage = "smart_home"
                 st.rerun()
 
     except Exception as e:

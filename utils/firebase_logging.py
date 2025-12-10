@@ -126,6 +126,38 @@ class FirebaseLogger:
         blob.upload_from_filename(local_fp)
         return f"gs://{self.bucket.name}/{remote_path}"
 
+    def save_final_docx_to_date_folder(self, articles_data, filename):
+        """從文章數據重新生成並保存 DOCX 到今日資料夾"""
+        import tempfile
+        from utils.international_news_utils import create_international_news_report
+        
+        folder_path = f"international_news/{TODAY}/"
+        remote_path = f"{folder_path}{filename}"
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp:
+            create_international_news_report(
+                articles_data=articles_data,
+                output_path=tmp.name,
+                st_module=None  # No Streamlit context needed
+            )
+            tmp_path = tmp.name
+        
+        gs_url = self.upload_file_to_firebase(tmp_path, remote_path)
+        os.unlink(tmp_path)
+        return gs_url
+
+    def load_final_docx_from_date_folder(self, filename):
+        """載入今日最終 DOCX 文件"""
+        folder_path = f"international_news/{TODAY}/"
+        remote_path = f"{folder_path}{filename}"
+        try:
+            blob = self.bucket.blob(remote_path)
+            if blob.exists():
+                return blob.download_as_bytes()
+        except:
+            pass
+        return None
+
     def export_log_json(self, log_dir):
         # Write file locally as before
         os.makedirs(log_dir, exist_ok=True)
