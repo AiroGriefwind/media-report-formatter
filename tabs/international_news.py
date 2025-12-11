@@ -175,7 +175,7 @@ def render_article_card(article, index, location, total_count):
 
 # === 主流程函數 ===
 
-def handle_international_news_logic(
+def _handle_international_news_logic(
     groupname_intl,
     username_intl,
     password_intl,
@@ -385,7 +385,7 @@ def handle_international_news_logic(
                 try:
                     driver = setup_webdriver(headless=run_headless_intl, st_module=st)
                     wait = WebDriverWait(driver, 20)
-                    perform_login(driver=driver, wait=wait, group_name=group_name_intl, username=username_intl, password=password_intl, api_key=api_key_intl, st_module=st)
+                    perform_login(driver=driver, wait=wait, group_name=groupname_intl, username=username_intl, password=password_intl, api_key=api_key_intl, st_module=st)
                     switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
                     run_international_news_task(driver=driver, wait=wait, st_module=st)
                     
