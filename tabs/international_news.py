@@ -615,7 +615,7 @@ def render_international_news_tab():
     if all([group, user, pwd, api_key]):
         _handle_international_news_logic(
             group, user, pwd, api_key,
-            run_headless, keep_open, max_words, min_words
+            run_headless, keep_open, max_words, min_words, max_articles
         )
     else:
         st.error("請提供完整的 Wisers 帳號密碼及 API Key 才能開始。")
