@@ -339,12 +339,12 @@ def _handle_international_news_logic(
                     
                     
 
-                    # Scrape Popovers
-                    raw_list = scrape_hover_popovers(driver=driver, wait=wait, st_module=st) or []
-                    
+                    # Scrape hover popovers
+                    rawlist = []  # 初始化
+                    rawlist = scrape_hover_popovers(driver=driver, wait=wait, st_module=st) or []
                     if st: st.info(f"✅ 抓取了 {len(rawlist)} 篇懸停預覽")
 
-                    # 登出前先處理 rawlist
+                    # Logout before filter
                     st.info("暫時登出以釋放 Session...")
                     try:
                         robust_logout_request(driver, st)
@@ -354,7 +354,7 @@ def _handle_international_news_logic(
 
                     # Filter by word count from hover_text
                     filtered_rawlist = []
-                    for item in rawlist:  # 現在保證是 list
+                    for item in rawlist:  # 現在保證 rawlist 存在
                         hover_text = item.get("hover_text", "")
                         word_matches = re.findall(r'(\d+)\s*字', hover_text)
                         if word_matches:
@@ -364,7 +364,7 @@ def _handle_international_news_logic(
                             else:
                                 if st: st.write(f"已過濾: {item.get('title', 'Unknown')} ({word_count} 字)")
                         else:
-                            # 無字數 metadata，保留（避免漏掉沒字數的文章）
+                            # 無字數 metadata，保留
                             filtered_rawlist.append(item)
 
                     rawlist = filtered_rawlist
