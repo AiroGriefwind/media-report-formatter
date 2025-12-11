@@ -28,6 +28,7 @@ from utils.international_news_utils import (
     create_hover_preview_report,
     should_scrape_article_based_on_metadata,
     scrape_specific_articles_by_indices,
+    parse_metadata,
     create_international_news_report
 )
 
@@ -360,6 +361,19 @@ def _handle_international_news_logic(
                             progress_callback=lambda i, n, t: st.text(f"分析中 ({i+1}/{n}): {t}...")
                         )
                     
+                    for item in analyzed_list:
+                        hover_text = item.get("hover_text", "")
+                        if "\n" in hover_text:
+                            lines = hover_text.split("\n", 2)
+                            if len(lines) > 1 and lines[0].strip() == item.get("title", "").strip():
+                                raw_meta = lines[1].strip()
+                            else:
+                                raw_meta = lines[0].strip()
+                        else:
+                            raw_meta = ""
+                        
+                        item["formatted_metadata"] = parse_metadata(raw_meta)
+
                     # Group by Location
                     grouped_data = {loc: [] for loc in LOCATION_ORDER}
                     for item in analyzed_list:

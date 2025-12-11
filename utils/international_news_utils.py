@@ -199,6 +199,41 @@ def should_scrape_article_based_on_metadata(metadata_text, min_words=200, max_wo
     
     return True
 
+def parse_metadata(raw_meta, title=""):  # 只需 raw_meta，不用 title 做解析
+    formatted_meta = raw_meta  # fallback
+    
+    # 匹配日期 (YYYY-MM-DD 或變體)
+    date_match = re.search(r'(\d{4}[-年.]\d{2}[-月.]\d{2})', raw_meta)
+    # 匹配字數
+    word_match = re.search(r'(\d+)\s*字', raw_meta)
+    
+    if date_match:
+        date_str = date_match.group(1).replace('年', '-').replace('月', '-').replace('日', '').replace('.', '-')
+    else:
+        date_str = datetime.now().strftime('%Y-%m-%d')
+    
+    word_str = f"{word_match.group(1)} 字" if word_match else ""
+    
+    # 提取媒體：剔除日期/字數
+    media_part = raw_meta
+    if date_match: media_part = media_part.replace(date_match.group(0), '')
+    if word_match: media_part = media_part.replace(word_match.group(0), '')
+    media_part = media_part.replace('|', '').strip()
+    
+    # 映射媒體名
+    mapped_media = media_part
+    if media_part in MEDIA_NAME_MAPPINGS:
+        mapped_media = MEDIA_NAME_MAPPINGS[media_part]
+    else:
+        for k, v in MEDIA_NAME_MAPPINGS.items():
+            if k in media_part:
+                mapped_media = v
+                break
+    
+    # 組裝：Date | Media | Words
+    parts = [p for p in [date_str, mapped_media, word_str] if p]
+    return " | ".join(parts) if parts else raw_meta or "No metadata"
+
 def create_hover_preview_report(**kwargs):
     """
     Create a Word document report from hover preview list.
