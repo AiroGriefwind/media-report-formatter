@@ -373,7 +373,7 @@ def _handle_international_news_logic(
 
                     # Filter & AI Analysis
                     filtered_list = []
-                    for i, item in enumerate(raw_list):
+                    for i, item in enumerate(rawlist):
                         item['original_index'] = i
                         filtered_list.append(item)
                     
