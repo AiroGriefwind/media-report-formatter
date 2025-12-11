@@ -142,7 +142,7 @@ def render_article_card(article, index, location, total_count):
             st.caption(f"Score: {score}")
             
         # Metadata
-        raw_meta = article.get("metadataline") or article.get("metadata_line") or ""
+        raw_meta = article.get("formatted_metadata") or ""
         meta_text = raw_meta or "No metadata"
         st.markdown(f"<div class='article-meta'>{meta_text}</div>", unsafe_allow_html=True)
         
