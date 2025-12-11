@@ -313,8 +313,7 @@ def _handle_international_news_logic(
                     
                     run_international_news_task(driver=driver, wait=wait, st_module=st)
                     
-                    # ✅ 保存原始預覽列表
-                    fb_logger.save_json_to_date_folder(st.session_state.intl_articles_list, 'preview_articles.json')
+                    
 
                     # Scrape Popovers
                     raw_list = scrape_hover_popovers(driver=driver, wait=wait, st_module=st)
@@ -349,6 +348,15 @@ def _handle_international_news_logic(
                         if loc not in grouped_data: loc = 'Others'
                         grouped_data[loc].append(item)
                     
+                    # ✅ 把最终带有 hover 摘要 + AI 分析的数据，写回 session
+                    st.session_state.intl_articles_list = analyzed_list
+
+                    # ✅ 悬浮预览 + AI 完成后再保存 preview_articles.json
+                    fb_logger.save_json_to_date_folder(
+                        st.session_state.intl_articles_list,
+                        'preview_articles.json'
+                    )
+
                     st.session_state.intl_sorted_dict = grouped_data
                     st.session_state.intl_stage = "ui_sorting"
                     st.rerun()
