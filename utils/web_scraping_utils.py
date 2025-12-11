@@ -289,8 +289,6 @@ def scrape_hover_popovers(**kwargs):
                 # Move mouse over the element to trigger the popover
                 actions.move_to_element(el).perform()
 
-                # --- START OF THE FIX ---
-
                 # 1. Wait for the main popover container to appear
                 # We need a short wait here just for the container.
                 popover_wait = WebDriverWait(driver, 5)
@@ -307,8 +305,7 @@ def scrape_hover_popovers(**kwargs):
                         (By.CSS_SELECTOR, "div.popover.popover-article div.preloader")
                     )
                 )
-                
-                # --- END OF THE FIX ---
+            
 
                 # 3. Now it's safe to scrape the full content
                 hover_html = popover.get_attribute("innerHTML")

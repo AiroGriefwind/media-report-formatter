@@ -33,7 +33,9 @@ def run_international_news_task(**kwargs):
     driver = kwargs.get('driver')
     wait = kwargs.get('wait')
     st = kwargs.get('st_module')
-    
+    max_articles = kwargs.get('max_articles', 30)
+    # max_words = kwargs.get('max_words', 1000)
+    # min_words = kwargs.get('min_words', 200)
     try:
         # Try the saved search approach first
         dropdown_toggle = wait.until(
@@ -125,7 +127,7 @@ def run_international_news_task(**kwargs):
                     st.write(f"[International News Scrape] Attempt {retry+1}: {len(results)} items found.")
                 
                 # Limit to around 80-100 articles as requested
-                results = results[:100]
+                results = results[:max_articles]
                 
                 for i, result in enumerate(results):
                     try:

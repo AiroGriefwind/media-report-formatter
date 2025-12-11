@@ -8,6 +8,8 @@ from selenium.webdriver.common.by import By
 
 import pytz  # ✅ 新增 TODAY 用
 
+import re
+
 HKT = pytz.timezone('Asia/Hong_Kong')
 TODAY = datetime.now(HKT).strftime("%Y%m%d")  # ✅ 全域 TODAY
 
@@ -179,7 +181,7 @@ def render_article_card(article, index, location, total_count):
 
 def _handle_international_news_logic(
     group_name_intl, username_intl, password_intl, api_key_intl,
-    run_headless_intl, keep_browser_open_intl, max_words, min_words
+    run_headless_intl, keep_browser_open_intl, max_words, min_words, max_articles
 ):
     """
     Revised flow with Firebase persistence + Mobile-First UI
@@ -333,7 +335,7 @@ def _handle_international_news_logic(
                     perform_login(driver=driver, wait=wait, group_name=group_name_intl, username=username_intl, password=password_intl, api_key=api_key_intl, st_module=st)
                     switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
                     
-                    run_international_news_task(driver=driver, wait=wait, st_module=st)
+                    run_international_news_task(driver=driver, wait=wait, st_module=st, max_articles=max_articles)
                     
                     
 
@@ -348,6 +350,25 @@ def _handle_international_news_logic(
                         st.warning(f"登出時發生小問題 (不影響流程): {e}")
                     
                     driver.quit()
+                    
+                    # Filter by word count from hover_text
+                    filtered_rawlist = []
+                    for item in rawlist:
+                        hover_text = item.get("hover_text", "")
+                        word_matches = re.findall(r'(\d+)\s*字', hover_text)
+                        if word_matches:
+                            word_count = int(word_matches[0])
+                            if min_words <= word_count <= max_words:
+                                filtered_rawlist.append(item)
+                            else:
+                                if st: st.write(f"Filtered: {item.get('title', 'Unknown')} ({word_count} 字)")
+                        else:
+                            # 無字數，保留或 skip（依需求）
+                            filtered_rawlist.append(item)
+
+                    rawlist = filtered_rawlist  # 更新
+                    if st: st.info(f"After word filter: {len(rawlist)} articles")
+
 
                     # Filter & AI Analysis
                     filtered_list = []
@@ -575,6 +596,7 @@ def render_international_news_tab():
         st.subheader("International News Settings")
         max_words = st.slider("Max Words", 200, 2000, 1000)
         min_words = st.slider("Min Words", 50, 500, 200)
+        max_articles = st.slider("Max Articles", 10, 100, 30)
         run_headless = st.checkbox("Headless Mode", value=True)
         keep_open = st.checkbox("Keep Browser Open", value=False)
         
