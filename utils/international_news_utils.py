@@ -390,7 +390,7 @@ def scrape_international_articles_sequentially(**kwargs):
     """Scrape international articles with pre-filtering for news only and word count limit"""
     driver = kwargs.get('driver')
     wait = kwargs.get('wait')
-    max_articles = kwargs.get('max_articles', 100)
+    max_articles = kwargs.get('max_articles', 30)
     max_words = kwargs.get('max_words', 1000)
     st = kwargs.get('st_module')
 
