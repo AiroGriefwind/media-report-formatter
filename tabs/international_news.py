@@ -340,20 +340,21 @@ def _handle_international_news_logic(
                     
 
                     # Scrape Popovers
-                    raw_list = scrape_hover_popovers(driver=driver, wait=wait, st_module=st)
+                    raw_list = scrape_hover_popovers(driver=driver, wait=wait, st_module=st) or []
                     
-                    # Logout before quitting
+                    if st: st.info(f"✅ 抓取了 {len(rawlist)} 篇懸停預覽")
+
+                    # 登出前先處理 rawlist
                     st.info("暫時登出以釋放 Session...")
                     try:
                         robust_logout_request(driver, st)
                     except Exception as e:
-                        st.warning(f"登出時發生小問題 (不影響流程): {e}")
-                    
+                        st.warning(f"登出時出現問題: {e}")
                     driver.quit()
-                    
+
                     # Filter by word count from hover_text
                     filtered_rawlist = []
-                    for item in rawlist:
+                    for item in rawlist:  # 現在保證是 list
                         hover_text = item.get("hover_text", "")
                         word_matches = re.findall(r'(\d+)\s*字', hover_text)
                         if word_matches:
@@ -361,13 +362,13 @@ def _handle_international_news_logic(
                             if min_words <= word_count <= max_words:
                                 filtered_rawlist.append(item)
                             else:
-                                if st: st.write(f"Filtered: {item.get('title', 'Unknown')} ({word_count} 字)")
+                                if st: st.write(f"已過濾: {item.get('title', 'Unknown')} ({word_count} 字)")
                         else:
-                            # 無字數 metadata，保留（或 skip，看需求）
+                            # 無字數 metadata，保留（避免漏掉沒字數的文章）
                             filtered_rawlist.append(item)
 
                     rawlist = filtered_rawlist
-                    if st: st.info(f"After word filter: {len(rawlist)} articles")
+                    if st: st.info(f"📊 字數過濾後剩餘: {len(rawlist)} 篇")
 
 
                     # Filter & AI Analysis
