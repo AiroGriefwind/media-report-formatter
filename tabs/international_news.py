@@ -363,10 +363,10 @@ def _handle_international_news_logic(
                             else:
                                 if st: st.write(f"Filtered: {item.get('title', 'Unknown')} ({word_count} 字)")
                         else:
-                            # 無字數，保留或 skip（依需求）
+                            # 無字數 metadata，保留（或 skip，看需求）
                             filtered_rawlist.append(item)
 
-                    rawlist = filtered_rawlist  # 更新
+                    rawlist = filtered_rawlist
                     if st: st.info(f"After word filter: {len(rawlist)} articles")
 
 
