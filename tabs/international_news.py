@@ -116,13 +116,13 @@ def render_article_card(article, index, location, total_count):
             border-left: 5px solid %s;
         }
         .article-meta {
-            color: #666;
+            color: inherit;
             font-size: 0.8em;
             margin-bottom: 5px;
         }
         .article-content {
             font-size: 0.9em;
-            color: #333;
+            color: inherit;
         }
         </style>
     """
@@ -141,7 +141,8 @@ def render_article_card(article, index, location, total_count):
             st.caption(f"Score: {score}")
             
         # Metadata
-        meta_text = article.get('metadata_line', 'No metadata')
+        raw_meta = article.get("metadataline") or article.get("metadata_line") or ""
+        meta_text = raw_meta or "No metadata"
         st.markdown(f"<div class='article-meta'>{meta_text}</div>", unsafe_allow_html=True)
         
         # Content Preview (Collapsible)
