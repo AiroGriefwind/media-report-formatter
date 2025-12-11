@@ -176,153 +176,182 @@ def render_article_card(article, index, location, total_count):
 # === 主流程函數 ===
 
 def _handle_international_news_logic(
-    groupname_intl,
-    username_intl,
-    password_intl,
-    apikey_intl,
-    run_headless_intl,
-    keep_browser_open_intl,
-    max_words,
-    min_words,
+    group_name_intl, username_intl, password_intl, api_key_intl,
+    run_headless_intl, keep_browser_open_intl, max_words, min_words
 ):
     """
-    Revised flow with Firebase persistence:
-    0%  -> smarthome
-    25% -> preview_articles.json (含悬浮预览 + AI 结果)
-    50% -> user_final_list.json
-    100% -> full_scraped_articles.json + finalreport.docx
+    Revised flow with Firebase persistence + Mobile-First UI
     """
+    
+    # 🔥 ✅ 智能檢查今日進度函數（新增）
+    def check_today_progress():
+        """檢查 Firebase 中今日三個文件的存在狀態"""
+        preview_exists = bool(fb_logger.load_json_from_date_folder('preview_articles.json', []))
+        user_list_exists = bool(fb_logger.load_json_from_date_folder('user_final_list.json', {}))
+        final_articles_exists = bool(fb_logger.load_json_from_date_folder('full_scraped_articles.json', []))
+        
+        total_preview = len(fb_logger.load_json_from_date_folder('preview_articles.json', []))
+        total_user_list = sum(len(v) for v in fb_logger.load_json_from_date_folder('user_final_list.json', {}).values())
+        
+        return {
+            'preview': preview_exists,
+            'user_list': user_list_exists,
+            'final_articles': final_articles_exists,
+            'preview_count': total_preview,
+            'user_list_count': total_user_list
+        }
 
-    fb_logger = st.session_state.get("fb_logger")  # 已在文件顶部初始化过 [file:2]
-    progress = check_today_progress()              # 使用你现有的进度函数 [file:2]
+    # 🔥 ✅ 恢復進度函數（新增）
+    def restore_progress(stage):
+        """一鍵恢復指定階段的進度"""
+        if stage == "ui_sorting":
+            st.session_state.intl_sorted_dict = fb_logger.load_json_from_date_folder('user_final_list.json', {})
+            st.session_state.intl_stage = "ui_sorting"
+        elif stage == "finished":
+            st.session_state.intl_final_articles = fb_logger.load_json_from_date_folder('full_scraped_articles.json', [])
+            st.session_state.intl_stage = "finished"
+        st.rerun()
 
-    LOCATION_ORDER = [
-        "United States", "Russia", "Europe", "Middle East",
-        "Southeast Asia", "Japan", "Korea", "China",
-        "Others", "Tech News",
-    ]
+    # ✅ 確保 fb_logger 可用（保留原有的）
+    fb_logger = st.session_state.get('fb_logger') or ensure_logger(st, run_context="international_news")
 
-    # ---------- Smart Home：显示今日进度 ----------
+    # Locations Order（保留原有的）
+    LOCATION_ORDER = ['United States', 'Russia', 'Europe', 'Middle East', 
+                      'Southeast Asia', 'Japan', 'Korea', 'China', 'Others', 'Tech News']
+
+    # 🔥 ✅ 智能首頁邏輯（新增，完全替換原開頭初始化）
     if "intl_stage" not in st.session_state:
-        st.session_state.intl_stage = "smarthome"
-
-    if st.session_state.intl_stage == "smarthome":
-        st.header("🌏 International News")
-
+        st.session_state.intl_stage = "smart_home"
+    
+    if st.session_state.intl_stage == "smart_home":
+        st.header("🌐 國際新聞 - 智能進度恢復")
+        st.info(f"📁 Firebase: `international_news/{TODAY}/` | {datetime.now().strftime('%H:%M')}")
+        
+        # 🔥 檢查進度
+        progress = check_today_progress()
+        
+        # 🔥 美化進度儀表板
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("预览数量", f"{progress['preview_count']}" if progress["preview"] else "0")
+            st.metric("📄 預覽文章", f"{progress['preview_count']} 篇", 
+                    "✅" if progress['preview'] else "❌")
         with col2:
-            st.metric("用户筛选后数量", f"{progress['user_list_count']}" if progress["user_list"] else "0")
+            st.metric("👤 用戶排序", f"{progress['user_list_count']} 篇", 
+                    "✅" if progress['user_list'] else "❌")
         with col3:
-            st.metric("全文抓取数量", f"{len(fb_logger.load_json_from_date_folder('full_scraped_articles.json', []))}"
-                      if progress["final_articles"] else "0")
-
+            st.metric("✅ 最終全文", f"{len(fb_logger.load_json_from_date_folder('full_scraped_articles.json', []))} 篇", 
+                    "✅" if progress['final_articles'] else "❌")
+        
         st.divider()
-
-        # 依据进度提供一键恢复入口
-        if progress["final_articles"]:
-            st.success("✅ 今日已完成 100%（全文与 Word 报告存在）")
-            if st.button("恢复到 100% 阶段（下载报告）", type="primary", use_container_width=True):
+        
+        # 🔥 三選一按鈕（依優先順序）
+        if progress['final_articles']:  # 100% 完成
+            st.success("🎉 **今日任務已100%完成！立即下載最終報告**")
+            if st.button("📥 下載最終 Word 報告（100%進度）", type="primary", use_container_width=True):
                 restore_progress("finished")
-        elif progress["user_list"]:
-            st.warning("🔶 已完成 50%：有用户筛选结果，可以继续做全文爬取。")
-            if st.button("恢复到 50% 阶段（UI 排序完成）", type="primary", use_container_width=True):
+        elif progress['user_list']:     # 50% 排序完成
+            st.warning("⏳ **今日已完成50%（用戶排序），繼續全文爬取**")
+            if st.button("👤 恢復排序界面繼續（50%進度）", type="primary", use_container_width=True):
                 restore_progress("ui_sorting")
-        elif progress["preview"]:
-            st.info("🟦 已完成 25%：有预览与 AI 打分记录，可以继续做 UI 排序。")
-            if st.button("恢复到 25% 阶段（只做过 AI 预览）", type="secondary", use_container_width=True):
-                st.session_state.intl_articles_list = fb_logger.load_json_from_date_folder(
-                    "preview_articles.json", []
-                )
+        elif progress['preview']:       # 25% 預覽完成
+            st.info("🔄 **今日已有預覽資料，跳過爬取直接AI分析**")
+            if st.button("🔄 重新AI分析排序（25%進度）", type="secondary", use_container_width=True):
+                st.session_state.intl_articles_list = fb_logger.load_json_from_date_folder('preview_articles.json', [])
                 st.session_state.intl_stage = "init"
                 st.rerun()
-        else:
-            st.success("🆕 今日尚未开始，可以从 0% 开始执行。")
-            if st.button("从 0% 开始（AI 预览）", type="primary", use_container_width=True):
+        else:                           # 0% 全新開始
+            st.success("🆕 **今日全新任務，開始抓取預覽**")
+            if st.button("🚀 開始新任務（0%進度）", type="primary", use_container_width=True):
                 st.session_state.intl_stage = "init"
                 st.rerun()
-
+        
         st.divider()
-        return  # smarthome 阶段到此结束
+        
+        # 🔥 備用選項（小按鈕）
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            if st.button("🔄 忽略進度重來", type="secondary"):
+                for key in ['intl_stage', 'intl_sorted_dict', 'intl_final_articles', 'intl_articles_list']:
+                    if key in st.session_state: del st.session_state[key]
+                st.session_state.intl_stage = "init"
+                st.rerun()
+        with col_b:
+            if st.button("📋 查看 JSON 數據", type="secondary"):
+                st.session_state.intl_stage = "data_viewer"
+                st.rerun()
+        
+        st.stop()
+    
+    elif st.session_state.intl_stage == "data_viewer":
+        st.header("📋 JSON 數據檢視")
+        if st.button("返回進度頁"):
+            st.session_state.intl_stage = "smart_home"
+            st.rerun()
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.json(fb_logger.load_json_from_date_folder('preview_articles.json', []))
+        with col2:
+            st.json(fb_logger.load_json_from_date_folder('user_final_list.json', {}))
+        with col3:
+            st.json(fb_logger.load_json_from_date_folder('full_scraped_articles.json', []))
+        if st.button("返回進度頁"):
+            st.session_state.intl_stage = "smart_home"
+            st.rerun()
+        st.stop()
 
-    # ---------- Stage 1：登录 + 搜索 + 悬浮预览 + AI ----------
-    if st.session_state.intl_stage == "init":
-        st.header("Stage 1 – 搜索 + 悬浮预览 + AI 评分")
-
-        if st.button("▶️ 一键执行（生成预览 + 悬浮摘要 + AI 评分）",
-                     type="primary", use_container_width=True):
-            try:
-                with st.spinner("登录 Wisers、执行搜索并生成预览…"):
+    try:
+        # === Stage 1: Login, Search, Preview, AI Analysis ===
+        if st.session_state.intl_stage == "init":
+            if st.button("🚀 開始任務：抓取預覽 + AI 分析"):
+                with st.spinner("第一步：登錄 Wisers 並抓取預覽..."):
                     driver = setup_webdriver(headless=run_headless_intl, st_module=st)
-                    if not driver:
-                        st.stop()
-
+                    if not driver: st.stop()
+                    
                     wait = WebDriverWait(driver, 20)
-                    perform_login(
-                        driver=driver,
-                        wait=wait,
-                        groupname=groupname_intl,
-                        username=username_intl,
-                        password=password_intl,
-                        apikey=apikey_intl,
-                        st_module=st,
-                    )
-
-                    switch_language_to_traditional_chinese(
-                        driver=driver, wait=wait, st_module=st
-                    )
-
-                    # 1) 搜索并生成初步结果（标题、链接等）
+                    perform_login(driver=driver, wait=wait, group_name=group_name_intl, username=username_intl, password=password_intl, api_key=api_key_intl, st_module=st)
+                    switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
+                    
                     run_international_news_task(driver=driver, wait=wait, st_module=st)
+                    
+                    # ✅ 保存原始預覽列表
+                    fb_logger.save_json_to_date_folder(st.session_state.intl_articles_list, 'preview_articles.json')
 
-                    # 2) 爬取悬浮预览内容
+                    # Scrape Popovers
                     raw_list = scrape_hover_popovers(driver=driver, wait=wait, st_module=st)
-
-                    st.info("🔁 结束浏览器 session，准备进行 AI 分析…")
+                    
+                    # Logout before quitting
+                    st.info("暫時登出以釋放 Session...")
                     try:
                         robust_logout_request(driver, st)
                     except Exception as e:
-                        st.warning(f"注销时出现问题：{e}")
+                        st.warning(f"登出時發生小問題 (不影響流程): {e}")
+                    
                     driver.quit()
 
-                # 3) 给每条记录补上 original_index，并做 AI 评分
-                filtered_list = []
-                for i, item in enumerate(raw_list):
-                    item["original_index"] = i
-                    filtered_list.append(item)
-
-                with st.spinner(f"🤖 AI 评分中，共 {len(filtered_list)} 条…"):
-                    analyzed_list = run_ai_screening(
-                        filtered_list,
-                        progress_callback=lambda i, n, t: st.text(f"{i + 1}/{n} {t}")
-                    )
-
-                # ✅ 关键：现在才更新 session_state 并保存到 Firebase
-                st.session_state.intl_articles_list = analyzed_list
-                fb_logger.save_json_to_date_folder(
-                    st.session_state.intl_articles_list,
-                    "preview_articles.json",
-                )
-
-                # 4) 依地区分组，进入 UI 排序阶段
-                grouped_data = {}
-                for item in analyzed_list:
-                    loc = item.get("ai_analysis", {}).get("main_location", "Others")
-                    if item.get("ai_analysis", {}).get("is_tech_news", False):
-                        loc = "Tech News"
-                    if loc not in LOCATION_ORDER:
-                        loc = "Others"
-                    grouped_data.setdefault(loc, []).append(item)
-
-                st.session_state.intl_sorted_dict = grouped_data
-                st.session_state.intl_stage = "ui_sorting"
-                st.rerun()
-
-            except Exception as e:
-                st.error(f"Stage 1 发生错误：{e}")
-                st.code(traceback.format_exc())
-                return
+                    # Filter & AI Analysis
+                    filtered_list = []
+                    for i, item in enumerate(raw_list):
+                        item['original_index'] = i
+                        filtered_list.append(item)
+                    
+                    with st.spinner(f"第二步：AI 正在分析 {len(filtered_list)} 篇文章..."):
+                        analyzed_list = run_ai_screening(
+                            filtered_list,
+                            progress_callback=lambda i, n, t: st.text(f"分析中 ({i+1}/{n}): {t}...")
+                        )
+                    
+                    # Group by Location
+                    grouped_data = {loc: [] for loc in LOCATION_ORDER}
+                    for item in analyzed_list:
+                        loc = item.get('ai_analysis', {}).get('main_location', 'Others')
+                        if item.get('ai_analysis', {}).get('is_tech_news', False):
+                            loc = 'Tech News'
+                        if loc not in grouped_data: loc = 'Others'
+                        grouped_data[loc].append(item)
+                    
+                    st.session_state.intl_sorted_dict = grouped_data
+                    st.session_state.intl_stage = "ui_sorting"
+                    st.rerun()
 
         # === Stage 2: UI Sorting（自動保存） ===
         if st.session_state.intl_stage == "ui_sorting":
@@ -385,7 +414,7 @@ def _handle_international_news_logic(
                 try:
                     driver = setup_webdriver(headless=run_headless_intl, st_module=st)
                     wait = WebDriverWait(driver, 20)
-                    perform_login(driver=driver, wait=wait, group_name=groupname_intl, username=username_intl, password=password_intl, api_key=api_key_intl, st_module=st)
+                    perform_login(driver=driver, wait=wait, group_name=group_name_intl, username=username_intl, password=password_intl, api_key=api_key_intl, st_module=st)
                     switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
                     run_international_news_task(driver=driver, wait=wait, st_module=st)
                     
@@ -469,6 +498,10 @@ def _handle_international_news_logic(
             if st.button("🔄 開始新任務"):
                 st.session_state.intl_stage = "smart_home"
                 st.rerun()
+
+    except Exception as e:
+        st.error(f"發生未預期的錯誤: {e}")
+        st.code(traceback.format_exc())
 
 
 def render_international_news_tab():
