@@ -254,10 +254,30 @@ def _handle_international_news_logic(
             if st.button("👤 恢復排序界面繼續（50%進度）", type="primary", use_container_width=True):
                 restore_progress("ui_sorting")
         elif progress['preview']:       # 25% 預覽完成
-            st.info("🔄 **今日已有預覽資料，跳過爬取直接AI分析**")
-            if st.button("🔄 重新AI分析排序（25%進度）", type="secondary", use_container_width=True):
-                st.session_state.intl_articles_list = fb_logger.load_json_from_date_folder('preview_articles.json', [])
-                st.session_state.intl_stage = "init"
+            st.info(f"🧠 AI 懸浮預覽已完成 ({progress['preview_count']} 篇文章)")
+            if st.button(f"🎯 展示目前預覽進度 ({progress['preview_count']} 條)", type="secondary", use_container_width=True):
+                # ✅ 載入預覽 JSON（已含 AI 分析）
+                preview_list = fb_logger.load_json_from_date_folder('preview_articles.json', [])
+                st.session_state.intl_articles_list = preview_list
+                
+                # ✅ 複製 init 階段的分組邏輯，直接從 preview_list 生成 sorted_dict
+                LOCATION_ORDER = [
+                    "United States", "Russia", "Europe", "Middle East", 
+                    "Southeast Asia", "Japan", "Korea", "China", "Others", "Tech News"
+                ]
+                grouped_data = {loc: [] for loc in LOCATION_ORDER}
+                for item in preview_list:
+                    loc = item.get('ai_analysis', {}).get('main_location', 'Others')
+                    if item.get('ai_analysis', {}).get('is_tech_news', False):
+                        loc = 'Tech News'
+                    grouped_data.setdefault(loc, []).append(item)
+                
+                # ✅ 設定分組結果，並自動保存為使用者排序列表（初始版）
+                st.session_state.intl_sorted_dict = grouped_data
+                fb_logger.save_json_to_date_folder(grouped_data, 'user_final_list.json')
+                st.success("✅ 已自動保存初始分組到 Firebase，進入排序階段！")
+                
+                st.session_state.intl_stage = "ui_sorting"
                 st.rerun()
         else:                           # 0% 全新開始
             st.success("🆕 **今日全新任務，開始抓取預覽**")
