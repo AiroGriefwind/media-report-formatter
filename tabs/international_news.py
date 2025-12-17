@@ -30,6 +30,8 @@ from utils.international_news_utils import (
     create_hover_preview_report,
     should_scrape_article_based_on_metadata,
     scrape_specific_articles_by_indices,
+    scrape_articles_by_news_id,  
+    extract_news_id_from_html, 
     parse_metadata,
     create_international_news_report
 )
@@ -385,6 +387,12 @@ def _handle_international_news_logic(
                     
                     for item in analyzed_list:
                         hover_text = item.get("hover_text", "")
+
+                        # ✅ 新增：提取 news_id
+                        hover_html = item.get('hover_html', '')
+                        news_id = extract_news_id_from_html(hover_html)
+                        item['news_id'] = news_id
+
                         if "\n" in hover_text:
                             lines = hover_text.split("\n", 2)
                             if len(lines) > 1 and lines[0].strip() == item.get("title", "").strip():
@@ -481,9 +489,13 @@ def _handle_international_news_logic(
                     wait = WebDriverWait(driver, 20)
                     perform_login(driver=driver, wait=wait, group_name=group_name_intl, username=username_intl, password=password_intl, api_key=api_key_intl, st_module=st)
                     switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
+                    
+                    
+                    # ✅ 重新搜索以显示结果页（但不再依赖索引）
                     run_international_news_task(driver=driver, wait=wait, st_module=st)
                     
-                    full_articles_data = scrape_specific_articles_by_indices(driver, wait, final_list, st_module=st)
+                    # ✅ 使用新函数：按 news_id/标题定位而非索引
+                    full_articles_data = scrape_articles_by_news_id(driver, wait, final_list, st_module=st)
                     
                     # ✅ 保存最終爬取結果
                     st.session_state.intl_final_articles = full_articles_data

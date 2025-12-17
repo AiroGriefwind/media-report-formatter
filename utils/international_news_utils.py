@@ -610,6 +610,157 @@ def scrape_specific_articles_by_indices(driver, wait, articles_to_scrape, st_mod
         
     return scraped_data
 
+def extract_news_id_from_html(hover_html):
+    """Extract news_id from hover_html content"""
+    import re
+    if not hover_html:
+        return None
+    
+    # Match patterns like: id="news:2500^202512179501277(S:568259853)"
+    match = re.search(r'id="(news:[^"]+)"', hover_html)
+    if match:
+        return match.group(1)
+    return None
+
+
+def scrape_articles_by_news_id(driver, wait, articles_to_scrape, st_module=None):
+    """
+    Scrape articles by locating them via news_id (preferred) or title (fallback).
+    This avoids index-based issues when search results change.
+    
+    articles_to_scrape: List of dicts with 'news_id', 'title', 'formatted_metadata'
+    """
+    scraped_data = []
+    original_window = driver.current_window_handle
+    total = len(articles_to_scrape)
+    
+    if st_module:
+        progress_bar = st_module.progress(0)
+        status_text = st_module.empty()
+    
+    for i, item in enumerate(articles_to_scrape):
+        news_id = item.get('news_id')
+        title = item.get('title', 'Unknown')
+        metadata = item.get('formatted_metadata', '')
+        
+        try:
+            if st_module:
+                status_text.text(f"🔍 定位 {i+1}/{total}: {title[:40]}...")
+                progress_bar.progress(i / total)
+            
+            # Strategy 1: Try to locate by news_id
+            target_element = None
+            
+            if news_id:
+                try:
+                    # Find element with this news_id in the search results page
+                    # The news_id is usually in the hover content div
+                    news_id_element = driver.find_element(By.XPATH, f"//*[@id='{news_id}']")
+                    
+                    # Navigate up to the parent list item
+                    target_element = news_id_element.find_element(By.XPATH, 
+                        "./ancestor::div[contains(@class, 'list-group-item')]")
+                    
+                    if st_module:
+                        st_module.write(f"✅ 用 news_id 定位成功: {title[:40]}")
+                except Exception as e:
+                    if st_module:
+                        st_module.write(f"⚠️ news_id 定位失败，尝试标题匹配: {title[:40]}")
+            
+            # Strategy 2: Fallback to title matching
+            if not target_element:
+                try:
+                    # Normalize spaces and try exact match first
+                    normalized_title = ' '.join(title.split())
+                    
+                    # Try exact match
+                    xpath_exact = f"//h4[@class='list-group-item-heading']//a[normalize-space()='{normalized_title}']"
+                    title_links = driver.find_elements(By.XPATH, xpath_exact)
+                    
+                    if not title_links:
+                        # Try contains match (for truncated titles)
+                        xpath_contains = f"//h4[@class='list-group-item-heading']//a[contains(normalize-space(), '{normalized_title[:30]}')]"
+                        title_links = driver.find_elements(By.XPATH, xpath_contains)
+                    
+                    if title_links:
+                        # Get the parent list item
+                        target_element = title_links[0].find_element(By.XPATH, 
+                            "./ancestor::div[contains(@class, 'list-group-item')]")
+                        
+                        if st_module:
+                            st_module.write(f"✅ 用标题定位成功: {title[:40]}")
+                    else:
+                        if st_module:
+                            st_module.warning(f"❌ 无法定位文章: {title}")
+                        continue
+                        
+                except Exception as e:
+                    if st_module:
+                        st_module.error(f"❌ 定位失败: {title} - {e}")
+                    continue
+            
+            # Now click the article link (same logic as before)
+            if target_element:
+                article_link = target_element.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a')
+                article_link.click()
+                
+                # Wait for new window and switch
+                wait.until(EC.number_of_windows_to_be(2))
+                for window_handle in driver.window_handles:
+                    if window_handle != original_window:
+                        driver.switch_to.window(window_handle)
+                        break
+                
+                # Scrape content
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.article-detail')))
+                time.sleep(1.5)
+                
+                # Extract data
+                full_title = driver.find_element(By.CSS_SELECTOR, 'h3').text.strip()
+                
+                try:
+                    meta_el = driver.find_element(By.CSS_SELECTOR, 'div.article-subheading')
+                    full_metadata = meta_el.text.strip()
+                except:
+                    full_metadata = metadata
+                
+                paragraphs = [p.text.strip() for p in driver.find_elements(By.CSS_SELECTOR, 'div.description p') 
+                             if p.text.strip()]
+                content_body = '\n\n'.join(paragraphs)
+                
+                article_data = {
+                    'title': full_title,
+                    'metadata_line': full_metadata,
+                    'content': content_body,
+                    'full_text': f"{full_title}\n\n{full_metadata}\n\n{content_body}"
+                }
+                
+                # Preserve AI analysis if exists
+                if 'ai_analysis' in item:
+                    article_data['ai_analysis'] = item['ai_analysis']
+                
+                scraped_data.append(article_data)
+                
+                # Close and return to search results
+                driver.close()
+                driver.switch_to.window(original_window)
+                time.sleep(0.5)
+                
+        except Exception as e:
+            if st_module:
+                st_module.error(f"❌ 爬取失败: {title[:40]} - {e}")
+            try:
+                driver.switch_to.window(original_window)
+            except:
+                pass
+    
+    if st_module:
+        progress_bar.progress(1.0)
+        status_text.text(f"✅ 爬取完成! 成功: {len(scraped_data)}/{total}")
+    
+    return scraped_data
+
+
 
 @retry_step
 def create_international_news_report(**kwargs):
