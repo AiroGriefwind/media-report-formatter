@@ -10,6 +10,8 @@ import pytz  # ✅ 新增 TODAY 用
 
 import re
 
+import json, tempfile, os
+
 HKT = pytz.timezone('Asia/Hong_Kong')
 TODAY = datetime.now(HKT).strftime("%Y%m%d")  # ✅ 全域 TODAY
 
@@ -35,6 +37,8 @@ from utils.international_news_utils import (
     parse_metadata,
     create_international_news_report
 )
+
+from utils.intl_trim_utils import trim_docx
 
 # 引入 Firebase Logger
 from utils.firebase_logging import ensure_logger
@@ -178,6 +182,63 @@ def render_article_card(article, index, location, total_count):
                      on_click=delete_article, args=(location, index))
         
         st.markdown("---")
+
+# === Docx Trimming Function ===
+def trim_docx_bytes_with_userlist(docx_bytes: bytes, user_final_list_dict: dict, keep_body_paras: int = 3) -> bytes:
+    if not docx_bytes:
+        raise ValueError("docx_bytes is empty")
+    if not isinstance(user_final_list_dict, dict):
+        raise ValueError("user_final_list_dict must be dict")
+
+    tmp_in = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+    tmp_js = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
+    try:
+        tmp_in.write(docx_bytes)
+        tmp_in.close()
+
+        tmp_js.write(json.dumps(user_final_list_dict, ensure_ascii=False).encode("utf-8"))
+        tmp_js.close()
+
+        tmp_out_path = tmp_in.name.replace(".docx", "_trimmed.docx")
+        trim_docx(tmp_in.name, tmp_js.name, tmp_out_path, keep_body_paras=keep_body_paras)
+
+        with open(tmp_out_path, "rb") as f:
+            return f.read()
+    finally:
+        for p in [tmp_in.name, tmp_js.name, tmp_in.name.replace(".docx", "_trimmed.docx")]:
+            try:
+                os.remove(p)
+            except:
+                pass
+
+
+def ensure_trimmed_docx_in_firebase_and_session(fb_logger):
+    import streamlit as st
+
+    if st.session_state.get("intl_final_docx_trimmed"):
+        return
+
+    # 1) 先从 Firebase 直接拿 trimmed
+    trimmed_bytes = fb_logger.load_final_docx_from_date_folder("final_report_trimmed.docx")
+    if trimmed_bytes:
+        st.session_state.intl_final_docx_trimmed = trimmed_bytes
+        return
+
+    # 2) 没有 trimmed，就用 final_report + user_final_list 现场生成
+    base_docx = st.session_state.get("intl_final_docx") or fb_logger.load_final_docx_from_date_folder("final_report.docx")
+    if not base_docx:
+        raise RuntimeError("Cannot load final_report.docx from session or Firebase")
+
+    user_final_list = fb_logger.load_json_from_date_folder("user_final_list.json", {})
+    if not user_final_list:
+        raise RuntimeError("Cannot load user_final_list.json from Firebase")
+
+    trimmed_bytes = trim_docx_bytes_with_userlist(base_docx, user_final_list, keep_body_paras=3)
+
+    # 3) 回存 Firebase + 写 session
+    fb_logger.save_final_docx_bytes_to_date_folder(trimmed_bytes, "final_report_trimmed.docx")
+    st.session_state.intl_final_docx_trimmed = trimmed_bytes
+
 
 # === 主流程函數 ===
 
@@ -516,14 +577,19 @@ def _handle_international_news_logic(
                     # ✅ 這裡保存 final_report 到 Firebase
                     fb_logger.save_final_docx_to_date_folder(full_articles_data, 'final_report.docx')
 
+                    # ✅ 生成 trimmed + 保存到 Firebase + 放进 session
+                    user_final_list = fb_logger.load_json_from_date_folder("user_final_list.json", {})
+                    trimmed_bytes = trim_docx_bytes_with_userlist(st.session_state.intl_final_docx, user_final_list, keep_body_paras=3)
+
+                    fb_logger.save_final_docx_bytes_to_date_folder(trimmed_bytes, "final_report_trimmed.docx")
+                    st.session_state.intl_final_docx_trimmed = trimmed_bytes
+
                     st.session_state.intl_stage = "finished"
                     robust_logout_request(driver, st)
                     driver.quit()
                     st.rerun()
 
-                    # 在 final_scraping 階段，生成 DOCX 後新增：
-                    fb_logger.save_final_docx_to_date_folder(full_articles_data, 'final_report.docx')
-
+                    
                     
                 except Exception as e:
                     st.error(f"爬取失敗: {e}")
@@ -552,17 +618,35 @@ def _handle_international_news_logic(
                         st.error("❌ 無法恢復最終報告，請重新執行爬取")
                         st.stop()
             
-            # ✅ 下載按鈕
-            st.download_button(
-                label="📥 下載最終 Word 報告",
-                data=st.session_state.intl_final_docx,
-                file_name=f"Intl_News_Report_{TODAY}.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                type="primary",
-                use_container_width=True,
-                help="包含今日最終排序的完整新聞報告"
-            )
-            
+            # --- 确保 trimmed 已恢复/已生成 ---
+            ensure_trimmed_docx_in_firebase_and_session(fb_logger)
+
+            # 🔥 下載按鈕
+            colA, colB = st.columns(2)
+
+            with colA:
+                st.download_button(
+                    label="📥 下載最終 Word 報告",
+                    data=st.session_state.intl_final_docx,
+                    file_name=f"Intl_News_Report_{TODAY}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    type="primary",
+                    use_container_width=True,
+                    help="包含今日最終排序的完整新聞報告"
+                )
+
+            with colB:
+                st.download_button(
+                    label="📥 下載（三段版）Word 報告",
+                    data=st.session_state.intl_final_docx_trimmed,
+                    file_name=f"Intl_News_Report_{TODAY}_trimmed.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    type="secondary",
+                    use_container_width=True,
+                    help="每篇：標題 + metadata + 正文三段（副標題不佔段數）"
+                )
+
+
             # 🔥 進度摘要
             col1, col2 = st.columns(2)
             with col1:

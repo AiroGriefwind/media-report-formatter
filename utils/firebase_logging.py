@@ -146,6 +146,22 @@ class FirebaseLogger:
         os.unlink(tmp_path)
         return gs_url
 
+    def save_final_docx_bytes_to_date_folder(self, docx_bytes: bytes, filename: str):
+        """直接保存 DOCX bytes 到今日資料夾（不需要重新生成）"""
+        folder_path = f"international_news/{TODAY}/"
+        remote_path = f"{folder_path}{filename}"
+
+        try:
+            blob = self.bucket.blob(remote_path)
+            blob.upload_from_string(
+                docx_bytes,
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
+            return f"gs://{self.bucket.name}/{remote_path}"
+        except:
+            return None
+
+
     def load_final_docx_from_date_folder(self, filename):
         """載入今日最終 DOCX 文件"""
         folder_path = f"international_news/{TODAY}/"
