@@ -102,7 +102,7 @@ class FirebaseLogger:
 
     def save_json_to_date_folder(self, data, filename):
         """Save JSON under date-based folder."""
-        folderpath = f"internationalnews/{_today_hkt_str()}"
+        folderpath = f"international_news/{_today_hkt_str()}"
         remotepath = f"{folderpath}/{filename}"
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
@@ -115,7 +115,7 @@ class FirebaseLogger:
 
     def load_json_from_date_folder(self, filename, default=None):
         """Load JSON from date-based folder."""
-        folderpath = f"internationalnews/{_today_hkt_str()}"
+        folderpath = f"international_news/{_today_hkt_str()}"
         remotepath = f"{folderpath}/{filename}"
 
         try:
@@ -137,7 +137,7 @@ class FirebaseLogger:
         import tempfile
         from utils.international_news_utils import create_international_news_report
 
-        folderpath = f"internationalnews/{_today_hkt_str()}"
+        folderpath = f"international_news/{_today_hkt_str()}"
         remotepath = f"{folderpath}/{filename}"
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
@@ -154,7 +154,7 @@ class FirebaseLogger:
 
     def save_final_docx_bytes_to_date_folder(self, docxbytes: bytes, filename: str):
         """Save DOCX bytes under date-based folder."""
-        folderpath = f"internationalnews/{_today_hkt_str()}"
+        folderpath = f"international_news/{_today_hkt_str()}"
         remotepath = f"{folderpath}/{filename}"
 
         try:
@@ -170,7 +170,7 @@ class FirebaseLogger:
 
     def load_final_docx_from_date_folder(self, filename):
         """Load DOCX bytes from date-based folder."""
-        folderpath = f"internationalnews/{_today_hkt_str()}"
+        folderpath = f"international_news/{_today_hkt_str()}"
         remotepath = f"{folderpath}/{filename}"
 
         try:
