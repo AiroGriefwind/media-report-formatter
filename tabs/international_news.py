@@ -145,17 +145,16 @@ def restore_progress(stage):
 
     st.rerun()
 
-# # 🔥 恢復進度函數
-# def restore_progress(stage):
-#     """一鍵恢復指定階段的進度"""
-#     if stage == "ui_sorting":
-#         st.session_state.intl_sorted_dict = fb_logger.load_json_from_date_folder('user_final_list.json', {})
-#         st.session_state.intl_stage = "ui_sorting"
-#     elif stage == "finished":
-#         st.session_state.intl_final_articles = fb_logger.load_json_from_date_folder('full_scraped_articles.json', [])
-#         st.session_state.intl_final_docx = None  # 需要重新生成下載鏈接
-#         st.session_state.intl_stage = "finished"
-#     st.rerun()
+# 🔥 ✅ 回滚到 UI 排序（新增）
+def rollback_to_ui_sorting():
+    # 清掉 100% 结果，避免 UI/状态混淆
+    for k in ["intlfinalarticles", "intlfinaldocx", "intlfinaldocxtrimmed"]:
+        if k in st.session_state:
+            st.session_state.pop(k, None)
+
+    # 直接复用你现有的恢复逻辑（会重建 intlpooldict）
+    restore_progress("uisorting")
+
 
 def move_article(location, index, direction):
     """Move article up or down within its category"""
@@ -705,28 +704,31 @@ def _handle_international_news_logic(
             ensure_trimmed_docx_in_firebase_and_session(fb_logger)
 
             # 🔥 下載按鈕
-            colA, colB = st.columns(2)
-
+            colA, colB, colC = st.columns([0.38, 0.38, 0.24])
             with colA:
                 st.download_button(
-                    label="📥 下載最終 Word 報告",
-                    data=st.session_state.intl_final_docx,
-                    file_name=f"Intl_News_Report_{TODAY}.docx",
+                    label="下载 Word（完整）",
+                    data=st.session_state.intlfinaldocx,
+                    filename=f"IntlNewsReport{TODAY}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     type="primary",
                     use_container_width=True,
-                    help="包含今日最終排序的完整新聞報告"
                 )
-
             with colB:
                 st.download_button(
-                    label="📥 下載（三段版）Word 報告",
-                    data=st.session_state.intl_final_docx_trimmed,
-                    file_name=f"Intl_News_Report_{TODAY}_trimmed.docx",
+                    label="下载 Word（trim）",
+                    data=st.session_state.intlfinaldocxtrimmed,
+                    filename=f"IntlNewsReport{TODAY}_trimmed.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     type="secondary",
                     use_container_width=True,
-                    help="每篇：標題 + metadata + 正文三段（副標題不佔段數）"
+                )
+            with colC:
+                st.button(
+                    "回到50%调整排序",
+                    type="secondary",
+                    use_container_width=True,
+                    on_click=rollback_to_ui_sorting,
                 )
 
 
