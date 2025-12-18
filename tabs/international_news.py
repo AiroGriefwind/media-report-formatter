@@ -584,7 +584,8 @@ def _handle_international_news_logic(
                 
                 with st.expander(f"{location} ({len(articles)})", expanded=True):
                     for i, article in enumerate(articles):
-                        render_article_card(article, i, location, len(articles))
+                        render_article_card(article, i, location, len(articles), mode="selected")
+
 
             st.write("---")
             
