@@ -579,8 +579,8 @@ def _handle_international_news_logic(
 
             # Render Categories
             for location in LOCATION_ORDER:
-                selected = st.session_state.intlsorteddict.get(location, [])
-                pool = st.session_state.intlpooldict.get(location, [])
+                selected = st.session_state.intl_sorted_dict.get(location, [])
+                pool = st.session_state.intl_pool_dict.get(location, [])
 
                 if not selected and not pool:
                     continue
