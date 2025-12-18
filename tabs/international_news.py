@@ -579,12 +579,26 @@ def _handle_international_news_logic(
 
             # Render Categories
             for location in LOCATION_ORDER:
-                articles = st.session_state.intl_sorted_dict.get(location, [])
-                if not articles: continue
-                
-                with st.expander(f"{location} ({len(articles)})", expanded=True):
-                    for i, article in enumerate(articles):
-                        render_article_card(article, i, location, len(articles), mode="selected")
+                selected = st.session_state.intlsorteddict.get(location, [])
+                pool = st.session_state.intlpooldict.get(location, [])
+
+                if not selected and not pool:
+                    continue
+
+                with st.expander(f"{location}（已选 {len(selected)} / 候选 {len(pool)}）", expanded=True):
+
+                    if selected:
+                        st.caption("已选（可排序）")
+                        for i, article in enumerate(selected):
+                            render_article_card(article, i, location, len(selected), mode="selected")
+                    else:
+                        st.info("当前地区还没有已选文章。")
+
+                    if pool:
+                        st.caption("候选（点击添加）")
+                        for j, article in enumerate(pool):
+                            render_article_card(article, j, location, len(pool), mode="pool")
+
 
 
             st.write("---")
