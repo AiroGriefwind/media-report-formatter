@@ -403,13 +403,13 @@ def _handle_international_news_logic(
                     grouped_data.setdefault(loc, []).append(item)
                 
                 # 1) Pool = 所有候选
-                st.session_state.intlpooldict = grouped_data
+                st.session_state.intl_pool_dict = grouped_data
 
                 # 2) Selected = 默认全空（但 key 要齐全，避免 bool({}) == False）
-                st.session_state.intlsorteddict = {loc: [] for loc in LOCATION_ORDER}
+                st.session_state.intl_sorted_dict = {loc: [] for loc in LOCATION_ORDER}
 
                 # 3) 仍然写 userfinallist.json（存“已选清单”）
-                fb_logger.savejsontodatefolder(st.session_state.intlsorteddict, "userfinallist.json")
+                fb_logger.save_json_to_date_folder(st.session_state.intl_sorted_dict, "userfinallist.json")
 
                 st.success("✅ 已进入选择模式：默认未选择，点击『添加』加入已选清单。")
                 st.session_state.intlstage = "uisorting"
