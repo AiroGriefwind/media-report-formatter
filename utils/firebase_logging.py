@@ -15,6 +15,9 @@ TODAY = datetime.now(HKT).strftime("%Y%m%d")
 
 _LOGGER = None  # kept for backward compatibility, but we now prefer session_state
 
+def _today_hkt_str() -> str:
+    # Always compute "today" at call time to avoid stale date after midnight
+    return dt.datetime.now(HKT).strftime("%Y%m%d")
 
 def _get_or_create_session_id(st):
     key = "_session_id"
@@ -98,26 +101,29 @@ class FirebaseLogger:
         # DO NOT: self.events_ref.push(payload)
 
     def save_json_to_date_folder(self, data, filename):
-        """存 JSON 到今日資料夾"""
-        folder_path = f"international_news/{TODAY}/"
-        remote_path = f"{folder_path}{filename}"
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
-            json.dump(data, tmp, ensure_ascii=False, indent=2)
-            tmp_path = tmp.name
-        gs_url = self.upload_file_to_firebase(tmp_path, remote_path)
-        os.unlink(tmp_path)
-        return gs_url
+        """Save JSON under date-based folder."""
+        folderpath = f"internationalnews/{_today_hkt_str()}"
+        remotepath = f"{folderpath}/{filename}"
 
-    def load_json_from_date_folder(self, filename, default=[]):
-        """載入今日資料夾 JSON，若無則返回 default"""
-        folder_path = f"international_news/{TODAY}/"
-        remote_path = f"{folder_path}{filename}"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+            json.dump(data, tmp, ensure_ascii=False, indent=2)
+            tmppath = tmp.name
+
+        gsurl = self.upload_file_to_firebase(tmppath, remotepath)
+        os.unlink(tmppath)
+        return gsurl
+
+    def load_json_from_date_folder(self, filename, default=None):
+        """Load JSON from date-based folder."""
+        folderpath = f"internationalnews/{_today_hkt_str()}"
+        remotepath = f"{folderpath}/{filename}"
+
         try:
-            blob = self.bucket.blob(remote_path)
+            blob = self.bucket.blob(remotepath)
             if blob.exists():
-                content = blob.download_as_string().decode('utf-8')
+                content = blob.download_as_string().decode("utf-8")
                 return json.loads(content)
-        except:
+        except Exception:
             pass
         return default
 
@@ -126,51 +132,52 @@ class FirebaseLogger:
         blob.upload_from_filename(local_fp)
         return f"gs://{self.bucket.name}/{remote_path}"
 
-    def save_final_docx_to_date_folder(self, articles_data, filename):
-        """從文章數據重新生成並保存 DOCX 到今日資料夾"""
+    def save_final_docx_to_date_folder(self, articlesdata, filename):
+        """Save DOCX under date-based folder."""
         import tempfile
         from utils.international_news_utils import create_international_news_report
-        
-        folder_path = f"international_news/{TODAY}/"
-        remote_path = f"{folder_path}{filename}"
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp:
-            create_international_news_report(
-                articles_data=articles_data,
-                output_path=tmp.name,
-                st_module=None  # No Streamlit context needed
-            )
-            tmp_path = tmp.name
-        
-        gs_url = self.upload_file_to_firebase(tmp_path, remote_path)
-        os.unlink(tmp_path)
-        return gs_url
 
-    def save_final_docx_bytes_to_date_folder(self, docx_bytes: bytes, filename: str):
-        """直接保存 DOCX bytes 到今日資料夾（不需要重新生成）"""
-        folder_path = f"international_news/{TODAY}/"
-        remote_path = f"{folder_path}{filename}"
+        folderpath = f"internationalnews/{_today_hkt_str()}"
+        remotepath = f"{folderpath}/{filename}"
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+            create_international_news_report(
+                articlesdata=articlesdata,
+                outputpath=tmp.name,
+                stmodule=None
+            )
+            tmppath = tmp.name
+
+        gsurl = self.upload_file_to_firebase(tmppath, remotepath)
+        os.unlink(tmppath)
+        return gsurl
+
+    def save_final_docx_bytes_to_date_folder(self, docxbytes: bytes, filename: str):
+        """Save DOCX bytes under date-based folder."""
+        folderpath = f"internationalnews/{_today_hkt_str()}"
+        remotepath = f"{folderpath}/{filename}"
 
         try:
-            blob = self.bucket.blob(remote_path)
+            blob = self.bucket.blob(remotepath)
             blob.upload_from_string(
-                docx_bytes,
+                docxbytes,
                 content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
-            return f"gs://{self.bucket.name}/{remote_path}"
-        except:
+            return f"gs://{self.bucket.name}/{remotepath}"
+        except Exception:
             return None
 
 
     def load_final_docx_from_date_folder(self, filename):
-        """載入今日最終 DOCX 文件"""
-        folder_path = f"international_news/{TODAY}/"
-        remote_path = f"{folder_path}{filename}"
+        """Load DOCX bytes from date-based folder."""
+        folderpath = f"internationalnews/{_today_hkt_str()}"
+        remotepath = f"{folderpath}/{filename}"
+
         try:
-            blob = self.bucket.blob(remote_path)
+            blob = self.bucket.blob(remotepath)
             if blob.exists():
                 return blob.download_as_bytes()
-        except:
+        except Exception:
             pass
         return None
 

@@ -250,6 +250,9 @@ def _handle_international_news_logic(
     Revised flow with Firebase persistence + Mobile-First UI
     """
     
+    global TODAY
+    TODAY = datetime.now(HKT).strftime("%Y%m%d")  # 更新 TODAY
+
     # 🔥 ✅ 智能檢查今日進度函數（新增）
     def check_today_progress():
         """檢查 Firebase 中今日三個文件的存在狀態"""
