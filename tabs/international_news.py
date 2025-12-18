@@ -18,6 +18,9 @@ TODAY = datetime.now(HKT).strftime("%Y%m%d")  # ✅ 全域 TODAY
 # 引入 AI 工具
 from utils.ai_screening_utils import run_ai_screening
 
+# 引入配置常數
+from utils.config import LOCATION_ORDER
+
 # 引入 Wisers 工具
 from utils.wisers_utils import (
     setup_webdriver,
@@ -78,17 +81,81 @@ def check_today_progress():
         'user_list_count': total_user_list
     }
 
-# 🔥 恢復進度函數
+ # 文章选择池相关函数
+
+def article_uid(article: dict) -> str:
+    """Stable uid for cross-rerun button keys and de-dup."""
+    return (
+        article.get("news_id")
+        or article.get("newsid")
+        or article.get("url")
+        or str(article.get("original_index", "na"))
+    )
+
+def build_grouped_data(article_list: list, location_order: list) -> dict:
+    """
+    Rebuild grouped dict using the same logic you already use:
+    main_location -> location; is_tech_news -> Tech News; fallback Others.
+    """
+    grouped = {loc: [] for loc in location_order}
+    for item in article_list:
+        ai = item.get("ai_analysis", {}) or {}
+        loc = ai.get("main_location", "Others")
+        if ai.get("is_tech_news", False):
+            loc = "Tech News"
+        if loc not in grouped:
+            loc = "Others"
+        grouped[loc].append(item)
+    return grouped
+
+def rebuild_pool_from_preview(preview_list: list, selected_dict: dict, location_order: list) -> dict:
+    """pool = preview_grouped - selected (by uid)."""
+    pool = build_grouped_data(preview_list, location_order)
+    selected_uids = set()
+    for loc, items in (selected_dict or {}).items():
+        for a in items:
+            selected_uids.add(article_uid(a))
+
+    for loc in list(pool.keys()):
+        pool[loc] = [a for a in pool[loc] if article_uid(a) not in selected_uids]
+    return pool
+
+# 🔥 ✅ 恢復進度函數（新增）
 def restore_progress(stage):
     """一鍵恢復指定階段的進度"""
     if stage == "ui_sorting":
-        st.session_state.intl_sorted_dict = fb_logger.load_json_from_date_folder('user_final_list.json', {})
+        # 1) restore selected
+        st.session_state.intl_sorted_dict = fb_logger.load_json_from_date_folder("user_final_list.json", {})
         st.session_state.intl_stage = "ui_sorting"
+
+        # 2) rebuild pool from preview - selected
+        preview_list = fb_logger.load_json_from_date_folder("preview_articles.json", [])
+        location_order = LOCATION_ORDER
+
+        st.session_state.intl_pool_dict = rebuild_pool_from_preview(
+            preview_list=preview_list,
+            selected_dict=st.session_state.intl_sorted_dict,
+            location_order=location_order,
+        )
+
     elif stage == "finished":
-        st.session_state.intl_final_articles = fb_logger.load_json_from_date_folder('full_scraped_articles.json', [])
-        st.session_state.intl_final_docx = None  # 需要重新生成下載鏈接
+        st.session_state.intl_final_articles = fb_logger.load_json_from_date_folder("full_scraped_articles.json", [])
+        st.session_state.intl_final_docx = None
         st.session_state.intl_stage = "finished"
+
     st.rerun()
+
+# # 🔥 恢復進度函數
+# def restore_progress(stage):
+#     """一鍵恢復指定階段的進度"""
+#     if stage == "ui_sorting":
+#         st.session_state.intl_sorted_dict = fb_logger.load_json_from_date_folder('user_final_list.json', {})
+#         st.session_state.intl_stage = "ui_sorting"
+#     elif stage == "finished":
+#         st.session_state.intl_final_articles = fb_logger.load_json_from_date_folder('full_scraped_articles.json', [])
+#         st.session_state.intl_final_docx = None  # 需要重新生成下載鏈接
+#         st.session_state.intl_stage = "finished"
+#     st.rerun()
 
 def move_article(location, index, direction):
     """Move article up or down within its category"""
@@ -112,76 +179,78 @@ def move_to_top(location, index):
         articles.insert(0, article)
         st.session_state.intl_last_update = time.time()
 
-def render_article_card(article, index, location, total_count):
-    """Render a single article card with controls"""
-    # 樣式定義
-    card_style = """
-        <style>
-        .article-card {
-            background-color: #f0f2f6;
-            border-radius: 10px;
-            padding: 15px;
-            margin-bottom: 10px;
-            border-left: 5px solid %s;
-        }
-        .article-meta {
-            color: inherit;
-            font-size: 0.8em;
-            margin-bottom: 5px;
-        }
-        .article-content {
-            font-size: 0.9em;
-            color: inherit;
-        }
-        </style>
+def add_to_selected(location: str, pool_index: int):
+    """Move from pool -> selected."""
+    article = st.session_state.intl_pool_dict[location].pop(pool_index)
+    st.session_state.intl_sorted_dict.setdefault(location, []).append(article)
+    st.session_state.intl_last_update = time.time()
+
+def remove_to_pool(location: str, selected_index: int):
+    """Move from selected -> pool."""
+    article = st.session_state.intl_sorted_dict[location].pop(selected_index)
+    st.session_state.intl_pool_dict.setdefault(location, []).append(article)
+    st.session_state.intl_last_update = time.time()
+
+
+def render_article_card(article, index, location, total_count, mode: str):
     """
-    
-    # Color coding based on score
-    score = article.get('ai_analysis', {}).get('overall_score', 0)
+    mode:
+      - "selected": show up/down/top + 删除(移回候选池)
+      - "pool": show 添加
+    """
+    score = article.get("ai_analysis", {}).get("overall_score", 0)
     color = "#ff4b4b" if score >= 20 else "#ffa500" if score >= 10 else "#21c354"
+
+    card_style = """
+    <style>
+    .article-card {
+        background-color: #0f172a10;
+        border-radius: 10px;
+        padding: 12px;
+        margin-bottom: 10px;
+        border-left: 5px solid %s;
+    }
+    .article-meta { font-size: 0.85em; opacity: 0.85; }
+    </style>
+    """
     st.markdown(card_style % color, unsafe_allow_html=True)
-    
+
+    uid = article_uid(article)
+    keybase = f"{location}-{uid}-{mode}"
+
     with st.container():
-        # Title and Badge
         col1, col2 = st.columns([0.85, 0.15])
         with col1:
-            st.markdown(f"**{index + 1}. {article['title']}**")
+            prefix = f"{index + 1}. " if mode == "selected" else ""
+            st.markdown(f"**{prefix}{article.get('title','(no title)')}**")
         with col2:
             st.caption(f"Score: {score}")
-            
-        # Metadata
-        raw_meta = article.get("formatted_metadata") or ""
-        meta_text = raw_meta or "No metadata"
+
+        meta_text = article.get("formatted_metadata") or "No metadata"
         st.markdown(f"<div class='article-meta'>{meta_text}</div>", unsafe_allow_html=True)
-        
-        # Content Preview (Collapsible)
+
         with st.expander("查看摘要內容"):
-            content = article.get('hover_text', 'No content')
-            st.markdown(f"<div class='article-content'>{content}</div>", unsafe_allow_html=True)
-            
-        # Control Buttons
-        c1, c2, c3, c4 = st.columns(4)
-        
-        # Unique key generation to avoid conflicts
-        key_base = f"{location}_{index}_{article.get('original_index', 0)}"
-        
-        with c1:
-            if index > 0:
-                st.button("⬆️ 上移", key=f"up_{key_base}", 
-                         on_click=move_article, args=(location, index, 'up'))
-        with c2:
-            if index < total_count - 1:
-                st.button("⬇️ 下移", key=f"down_{key_base}", 
-                         on_click=move_article, args=(location, index, 'down'))
-        with c3:
-            if index > 0:
-                st.button("🔝 置頂", key=f"top_{key_base}",
-                         on_click=move_to_top, args=(location, index))
-        with c4:
-            st.button("🗑️ 刪除", key=f"del_{key_base}", type="secondary",
-                     on_click=delete_article, args=(location, index))
-        
-        st.markdown("---")
+            content = article.get("hover_text", "No content")
+            st.markdown(content)
+
+        if mode == "selected":
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                if index > 0:
+                    st.button("↑", key=f"up-{keybase}", on_click=move_article, args=(location, index, "up"))
+            with c2:
+                if index < total_count - 1:
+                    st.button("↓", key=f"down-{keybase}", on_click=move_article, args=(location, index, "down"))
+            with c3:
+                if index > 0:
+                    st.button("置顶", key=f"top-{keybase}", on_click=move_to_top, args=(location, index))
+            with c4:
+                st.button("删除", key=f"rm-{keybase}", type="secondary", on_click=remove_to_pool, args=(location, index))
+        else:
+            st.button("添加", key=f"add-{keybase}", type="primary", on_click=add_to_selected, args=(location, index))
+
+    st.markdown("---")
+
 
 # === Docx Trimming Function ===
 def trim_docx_bytes_with_userlist(docx_bytes: bytes, user_final_list_dict: dict, keep_body_paras: int = 3) -> bytes:
@@ -271,23 +340,14 @@ def _handle_international_news_logic(
             'user_list_count': total_user_list
         }
 
-    # 🔥 ✅ 恢復進度函數（新增）
-    def restore_progress(stage):
-        """一鍵恢復指定階段的進度"""
-        if stage == "ui_sorting":
-            st.session_state.intl_sorted_dict = fb_logger.load_json_from_date_folder('user_final_list.json', {})
-            st.session_state.intl_stage = "ui_sorting"
-        elif stage == "finished":
-            st.session_state.intl_final_articles = fb_logger.load_json_from_date_folder('full_scraped_articles.json', [])
-            st.session_state.intl_stage = "finished"
-        st.rerun()
+
 
     # ✅ 確保 fb_logger 可用（保留原有的）
     fb_logger = st.session_state.get('fb_logger') or ensure_logger(st, run_context="international_news")
 
-    # Locations Order（保留原有的）
-    LOCATION_ORDER = ['United States', 'Russia', 'Europe', 'Middle East', 
-                      'Southeast Asia', 'Japan', 'Korea', 'China', 'Others', 'Tech News']
+    # # Locations Order（保留原有的）
+    # LOCATION_ORDER = ['United States', 'Russia', 'Europe', 'Middle East', 
+    #                   'Southeast Asia', 'Japan', 'Korea', 'China', 'Others', 'Tech News']
 
     # 🔥 ✅ 智能首頁邏輯（新增，完全替換原開頭初始化）
     if "intl_stage" not in st.session_state:
@@ -331,10 +391,10 @@ def _handle_international_news_logic(
                 st.session_state.intl_articles_list = preview_list
                 
                 # ✅ 複製 init 階段的分組邏輯，直接從 preview_list 生成 sorted_dict
-                LOCATION_ORDER = [
-                    "United States", "Russia", "Europe", "Middle East", 
-                    "Southeast Asia", "Japan", "Korea", "China", "Others", "Tech News"
-                ]
+                # LOCATION_ORDER = [
+                #     "United States", "Russia", "Europe", "Middle East", 
+                #     "Southeast Asia", "Japan", "Korea", "China", "Others", "Tech News"
+                # ]
                 grouped_data = {loc: [] for loc in LOCATION_ORDER}
                 for item in preview_list:
                     loc = item.get('ai_analysis', {}).get('main_location', 'Others')
@@ -342,12 +402,17 @@ def _handle_international_news_logic(
                         loc = 'Tech News'
                     grouped_data.setdefault(loc, []).append(item)
                 
-                # ✅ 設定分組結果，並自動保存為使用者排序列表（初始版）
-                st.session_state.intl_sorted_dict = grouped_data
-                fb_logger.save_json_to_date_folder(grouped_data, 'user_final_list.json')
-                st.success("✅ 已自動保存初始分組到 Firebase，進入排序階段！")
-                
-                st.session_state.intl_stage = "ui_sorting"
+                # 1) Pool = 所有候选
+                st.session_state.intlpooldict = grouped_data
+
+                # 2) Selected = 默认全空（但 key 要齐全，避免 bool({}) == False）
+                st.session_state.intlsorteddict = {loc: [] for loc in LOCATION_ORDER}
+
+                # 3) 仍然写 userfinallist.json（存“已选清单”）
+                fb_logger.savejsontodatefolder(st.session_state.intlsorteddict, "userfinallist.json")
+
+                st.success("✅ 已进入选择模式：默认未选择，点击『添加』加入已选清单。")
+                st.session_state.intlstage = "uisorting"
                 st.rerun()
         else:                           # 0% 全新開始
             st.success("🆕 **今日全新任務，開始抓取預覽**")

@@ -32,3 +32,9 @@ WISERS_URL = 'https://login.wisers.net/'
 
 # Global list for title modifications (used by document processing)
 TITLE_MODIFICATIONS = []
+
+# Location order for international news
+LOCATION_ORDER = [
+                    "United States", "Russia", "Europe", "Middle East", 
+                    "Southeast Asia", "Japan", "Korea", "China", "Others", "Tech News"
+                ]
