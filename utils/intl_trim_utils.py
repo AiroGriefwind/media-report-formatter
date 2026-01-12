@@ -164,8 +164,11 @@ def pick_title_indices(doc, titles):
         used[t] += 1
 
     if missing:
-        # 打印前几个 missing，方便定位
-        raise ValueError('以下标题在 docx 找不到（或重复次数不够）：\n- ' + '\n- '.join(missing[:10]))
+        # 若完全找不到任何匹配标题，仍然抛错，说明 doc 結構/版本可能不對
+        if not idxs:
+            raise ValueError('以下标题在 docx 找不到（或重复次数不够）：\n- ' + '\n- '.join(missing[:10]))
+        # 否則：只作為 warning，跳過這些 missing 標題，繼續生成裁剪版
+        print('【IntlTrim Warning】以下标题在 docx 找不到（或重复次数不够，已略過）：\n- ' + '\n- '.join(missing[:10]))
 
     # 关键：按 doc 中出现顺序排序，完全不依赖 JSON 顺序
     return sorted(set(idxs))
