@@ -424,11 +424,11 @@ def _handle_international_news_logic(
                 # 2) Selected = 默认全空（但 key 要齐全，避免 bool({}) == False）
                 st.session_state.intl_sorted_dict = {loc: [] for loc in LOCATION_ORDER}
 
-                # 3) 仍然写 userfinallist.json（存“已选清单”）
-                fb_logger.save_json_to_date_folder(st.session_state.intl_sorted_dict, "userfinallist.json")
+                # 3) 保存到 user_final_list.json（與其他流程保持一致）
+                fb_logger.save_json_to_date_folder(st.session_state.intl_sorted_dict, "user_final_list.json")
 
                 st.success("✅ 已进入选择模式：默认未选择，点击『添加』加入已选清单。")
-                st.session_state.intlstage = "uisorting"
+                st.session_state.intl_stage = "ui_sorting"
                 st.rerun()
         else:                           # 0% 全新開始
             st.success("🆕 **今日全新任務，開始抓取預覽**")
