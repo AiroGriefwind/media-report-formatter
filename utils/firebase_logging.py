@@ -142,9 +142,9 @@ class FirebaseLogger:
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
             create_international_news_report(
-                articlesdata=articlesdata,
-                outputpath=tmp.name,
-                stmodule=None
+                articles_data=articlesdata,
+                output_path=tmp.name,
+                st_module=None
             )
             tmppath = tmp.name
 

@@ -769,6 +769,10 @@ def create_international_news_report(**kwargs):
     output_path = kwargs.get('output_path')
     st = kwargs.get('st_module')
 
+    # 防禦：如果沒有有效 articles_data，提早拋錯，避免 NoneType 迭代
+    if not articles_data:
+        raise ValueError("create_international_news_report: 'articles_data' is empty or None")
+
     from docx import Document
 
     doc = Document()
