@@ -725,7 +725,7 @@ def _handle_international_news_logic(
             with colA:
                 st.download_button(
                     label="下载 Word（完整）",
-                    data=st.session_state.intlfinaldocx,
+                    data=st.session_state.intl_final_docx,
                     filename=f"IntlNewsReport{TODAY}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     type="primary",
@@ -734,7 +734,7 @@ def _handle_international_news_logic(
             with colB:
                 st.download_button(
                     label="下载 Word（trim）",
-                    data=st.session_state.intlfinaldocxtrimmed,
+                    data=st.session_state.intl_final_docx_trimmed,
                     filename=f"IntlNewsReport{TODAY}_trimmed.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     type="secondary",
