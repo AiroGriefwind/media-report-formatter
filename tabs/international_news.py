@@ -46,21 +46,6 @@ from utils.intl_trim_utils import trim_docx
 # 引入 Firebase Logger
 from utils.firebase_logging import ensure_logger
 
-# ✅ 初始化 logger（修正：確保 st 已存在）
-if 'fb_logger' not in st.session_state:
-    st.session_state['fb_logger'] = ensure_logger(st, run_context="international_news")
-fb_logger = st.session_state['fb_logger']
-
-# ✅ 修正：session_state 初始化移到這裡，且加 TODAY
-if 'intl_articles_list' not in st.session_state:
-    # 載入既有資料
-    st.session_state.intl_articles_list = fb_logger.load_json_from_date_folder('preview_articles.json', [])
-    st.session_state.intl_sorted_dict = fb_logger.load_json_from_date_folder('user_final_list.json', {})
-    st.session_state.intl_final_articles = fb_logger.load_json_from_date_folder('full_scraped_articles.json', [])
-    if st.session_state.intl_articles_list:
-        st.success(f"✅ 已載入今日 {TODAY} 預覽資料，避免重爬！")
-        st.info(f"📁 Firebase 路徑: international_news/{TODAY}/")
-
 # === UI 輔助函數  ===
 
 # 🔥 智能檢查今日進度函數
@@ -307,6 +292,38 @@ def ensure_trimmed_docx_in_firebase_and_session(fb_logger):
     fb_logger.save_final_docx_bytes_to_date_folder(trimmed_bytes, "final_report_trimmed.docx")
     st.session_state.intl_final_docx_trimmed = trimmed_bytes
 
+
+# ✅ 初始化 logger（修正：確保 st 已存在）
+if 'fb_logger' not in st.session_state:
+    st.session_state['fb_logger'] = ensure_logger(st, run_context="international_news")
+fb_logger = st.session_state['fb_logger']
+
+# ✅ 修正：session_state 初始化移到這裡，且加 TODAY
+if 'intl_articles_list' not in st.session_state:
+    # 載入既有資料
+    st.session_state.intl_articles_list = fb_logger.load_json_from_date_folder('preview_articles.json', [])
+    st.session_state.intl_sorted_dict = fb_logger.load_json_from_date_folder('user_final_list.json', {})
+    st.session_state.intl_final_articles = fb_logger.load_json_from_date_folder('full_scraped_articles.json', [])
+    if st.session_state.intl_articles_list:
+        st.session_state.intl_pool_dict = rebuild_pool_from_preview(
+            preview_list=st.session_state.intl_articles_list,
+            selected_dict=st.session_state.intl_sorted_dict,
+            location_order=LOCATION_ORDER
+        )
+        st.success(f"✅ 已載入今日 {TODAY} 預覽資料，避免重爬！")
+        st.info(f"📁 Firebase 路徑: international_news/{TODAY}/")
+
+# ✅ 確保 intl_pool_dict 永遠存在，避免未初始化造成 KeyError
+if 'intl_pool_dict' not in st.session_state:
+    if st.session_state.get('intl_articles_list'):
+        st.session_state.intl_pool_dict = rebuild_pool_from_preview(
+            preview_list=st.session_state.intl_articles_list,
+            selected_dict=st.session_state.get('intl_sorted_dict', {}),
+            location_order=LOCATION_ORDER
+        )
+    else:
+        # 建立全空的分組結構，避免後續對各地區進行 .get 時直接拋錯
+        st.session_state.intl_pool_dict = {loc: [] for loc in LOCATION_ORDER}
 
 # === 主流程函數 ===
 
@@ -801,3 +818,6 @@ def render_international_news_tab():
         )
     else:
         st.error("請提供完整的 Wisers 帳號密碼及 API Key 才能開始。")
+
+
+    
