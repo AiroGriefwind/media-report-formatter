@@ -106,7 +106,7 @@ def rebuild_pool_from_preview(preview_list: list, selected_dict: dict, location_
     return pool
 
 # 🔥 ✅ 恢復進度函數（新增）
-def restore_progress(stage):
+def restore_progress(stage, should_rerun=True):
     """一鍵恢復指定階段的進度"""
     if stage == "ui_sorting":
         # 1) restore selected
@@ -128,7 +128,8 @@ def restore_progress(stage):
         st.session_state.intl_final_docx = None
         st.session_state.intl_stage = "finished"
 
-    st.rerun()
+    if should_rerun:
+        st.rerun()
 
 # 🔥 ✅ 回滚到 UI 排序（新增）
 def rollback_to_ui_sorting():
@@ -138,7 +139,9 @@ def rollback_to_ui_sorting():
             st.session_state.pop(k, None)
 
     # 直接复用你现有的恢复逻辑（会重建 intlpooldict）
-    restore_progress("uisorting")
+    # 在回调中不调用 st.rerun()，而是设置标志
+    restore_progress("ui_sorting", should_rerun=False)
+    st.session_state.intl_need_rerun = True
 
 
 def move_article(location, index, direction):
@@ -368,6 +371,11 @@ def _handle_international_news_logic(
     # 🔥 ✅ 智能首頁邏輯（新增，完全替換原開頭初始化）
     if "intl_stage" not in st.session_state:
         st.session_state.intl_stage = "smart_home"
+    
+    # 🔥 检查是否需要重新运行（用于回调函数）
+    if st.session_state.get("intl_need_rerun", False):
+        st.session_state.intl_need_rerun = False
+        st.rerun()
     
     if st.session_state.intl_stage == "smart_home":
         st.header("🌐 國際新聞 - 智能進度恢復")
