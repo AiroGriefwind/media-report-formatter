@@ -61,21 +61,15 @@ def render_web_scraping_tab():
         value="李先知\n余錦賢\n傅流螢\n黄锦辉",
         help="Enter one author name per line. The script will search for the latest article from each."
     )
-    
-    # Sidebar options
-    st.sidebar.header("Debugging Options")
-    st.sidebar.markdown("---")
-    run_headless = st.checkbox("Run in headless mode (faster, no visible browser)", value=True)
-    keep_browser_open = st.sidebar.checkbox("Keep browser open after script finishes/fails")
-    
+
     if st.button("🚀 Start Scraping and Generate Report", type="primary"):
         ensure_logger(st, run_context={
             "tab": "web_scraping",
-            "headless": bool(run_headless),
+            "headless": True,
         })
         _handle_scraping_process(
             group_name, username, password, api_key,
-            authors_input, run_headless, keep_browser_open
+            authors_input, run_headless=True, keep_browser_open=False
         )
 
 def _get_credentials():
