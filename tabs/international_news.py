@@ -809,8 +809,6 @@ def render_international_news_tab():
         max_words = st.slider("Max Words", 200, 2000, 1000)
         min_words = st.slider("Min Words", 50, 500, 200)
         max_articles = st.slider("Max Articles", 10, 100, 30)
-        run_headless = st.checkbox("Headless Mode", value=True)
-        keep_open = st.checkbox("Keep Browser Open", value=False)
         
         # Credentials Input (Fallback)
         group, user, pwd = _get_credentials_intl()
@@ -827,7 +825,8 @@ def render_international_news_tab():
     if all([group, user, pwd, api_key]):
         _handle_international_news_logic(
             group, user, pwd, api_key,
-            run_headless, keep_open, max_words, min_words, max_articles
+            run_headless_intl=True, keep_browser_open_intl=False, 
+            max_words=max_words, min_words=min_words, max_articles=max_articles
         )
     else:
         st.error("請提供完整的 Wisers 帳號密碼及 API Key 才能開始。")
