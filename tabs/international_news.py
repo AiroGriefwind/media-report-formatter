@@ -401,8 +401,13 @@ def _handle_international_news_logic(
         # 🔥 三選一按鈕（依優先順序）
         if progress['final_articles']:  # 100% 完成
             st.success("🎉 **今日任務已100%完成！立即下載最終報告**")
-            if st.button("📥 下載最終 Word 報告（100%進度）", type="primary", use_container_width=True):
-                restore_progress("finished")
+            col_download, col_rollback = st.columns([0.7, 0.3])
+            with col_download:
+                if st.button("📥 下載最終 Word 報告（100%進度）", type="primary", use_container_width=True):
+                    restore_progress("finished")
+            with col_rollback:
+                if st.button("↩️ 回到50%调整排序", type="secondary", use_container_width=True, on_click=rollback_to_ui_sorting):
+                    pass  # rollback_to_ui_sorting 已经在 on_click 中处理了
         elif progress['user_list']:     # 50% 排序完成
             st.warning("⏳ **今日已完成50%（用戶排序），繼續全文爬取**")
             if st.button("👤 恢復排序界面繼續（50%進度）", type="primary", use_container_width=True):
