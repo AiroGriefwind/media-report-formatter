@@ -272,11 +272,15 @@ def scrape_hover_popovers(**kwargs):
     driver = kwargs.get("driver")
     wait = kwargs.get("wait")
     st = kwargs.get("st_module")
+    # 兼容不同调用：max_articles / max_items
+    max_items = kwargs.get("max_articles", kwargs.get("max_items"))
 
     previews = []
 
     try:
         elements = driver.find_elements(By.CSS_SELECTOR, "span[rel='popover-article']")
+        if isinstance(max_items, int) and max_items > 0:
+            elements = elements[:max_items]
         if st:
             st.write(f"Found {len(elements)} hoverable items on the page.")
 

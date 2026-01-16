@@ -105,6 +105,49 @@ def rebuild_pool_from_preview(preview_list: list, selected_dict: dict, location_
         pool[loc] = [a for a in pool[loc] if article_uid(a) not in selected_uids]
     return pool
 
+
+def ensure_intl_session_state(fb_logger):
+    """
+    Ensure International News session keys exist on EVERY rerun.
+
+    Why this exists:
+    - In this app, `render_international_news_tab()` is re-executed on slider changes,
+      but module-level initialization may not re-run due to Python import caching.
+    - Accessing `st.session_state.intl_pool_dict` without initialization will crash.
+    """
+    # 1) Preview list
+    if "intl_articles_list" not in st.session_state:
+        st.session_state.intl_articles_list = fb_logger.load_json_from_date_folder(
+            "preview_articles.json", []
+        )
+
+    # 2) Selected dict (user_final_list)
+    if "intl_sorted_dict" not in st.session_state:
+        st.session_state.intl_sorted_dict = fb_logger.load_json_from_date_folder(
+            "user_final_list.json", {}
+        )
+
+    if not isinstance(st.session_state.intl_sorted_dict, dict):
+        st.session_state.intl_sorted_dict = {loc: [] for loc in LOCATION_ORDER}
+    else:
+        for loc in LOCATION_ORDER:
+            st.session_state.intl_sorted_dict.setdefault(loc, [])
+
+    # 3) Pool dict (candidates)
+    pool = st.session_state.get("intl_pool_dict")
+    if not isinstance(pool, dict):
+        if st.session_state.get("intl_articles_list"):
+            st.session_state.intl_pool_dict = rebuild_pool_from_preview(
+                preview_list=st.session_state.intl_articles_list,
+                selected_dict=st.session_state.intl_sorted_dict,
+                location_order=LOCATION_ORDER,
+            )
+        else:
+            st.session_state.intl_pool_dict = {loc: [] for loc in LOCATION_ORDER}
+    else:
+        for loc in LOCATION_ORDER:
+            st.session_state.intl_pool_dict.setdefault(loc, [])
+
 # 🔥 ✅ 恢復進度函數（新增）
 def restore_progress(stage, should_rerun=True):
     """一鍵恢復指定階段的進度"""
@@ -364,6 +407,9 @@ def _handle_international_news_logic(
     # ✅ 確保 fb_logger 可用（保留原有的）
     fb_logger = st.session_state.get('fb_logger') or ensure_logger(st, run_context="international_news")
 
+    # ✅ 每次 rerun 都兜底初始化（防止 intl_pool_dict 缺失导致 UI 崩溃）
+    ensure_intl_session_state(fb_logger)
+
     # # Locations Order（保留原有的）
     # LOCATION_ORDER = ['United States', 'Russia', 'Europe', 'Middle East', 
     #                   'Southeast Asia', 'Japan', 'Korea', 'China', 'Others', 'Tech News']
@@ -501,7 +547,12 @@ def _handle_international_news_logic(
 
                     # Scrape hover popovers
                     rawlist = []  # 初始化
-                    rawlist = scrape_hover_popovers(driver=driver, wait=wait, st_module=st) or []
+                    rawlist = scrape_hover_popovers(
+                        driver=driver,
+                        wait=wait,
+                        st_module=st,
+                        max_articles=max_articles,
+                    ) or []
                     if st: st.info(f"✅ 抓取了 {len(rawlist)} 篇懸停預覽")
 
                     # Logout before filter
@@ -580,7 +631,11 @@ def _handle_international_news_logic(
                         'preview_articles.json'
                     )
 
-                    st.session_state.intl_sorted_dict = grouped_data
+                    # 进入 UI 选择/排序模式：
+                    # - Pool: 所有候选（默认未选择）
+                    # - Selected: 全空（用户点击“添加”才进入）
+                    st.session_state.intl_pool_dict = grouped_data
+                    st.session_state.intl_sorted_dict = {loc: [] for loc in LOCATION_ORDER}
                     st.session_state.intl_stage = "ui_sorting"
                     st.rerun()
 
@@ -609,7 +664,8 @@ def _handle_international_news_logic(
             # Render Categories
             for location in LOCATION_ORDER:
                 selected = st.session_state.intl_sorted_dict.get(location, [])
-                pool = st.session_state.intl_pool_dict.get(location, [])
+                pool_dict = st.session_state.get("intl_pool_dict") or {}
+                pool = pool_dict.get(location, [])
 
                 if not selected and not pool:
                     continue
@@ -806,8 +862,9 @@ def render_international_news_tab():
     # Sidebar Options
     with st.sidebar:
         st.subheader("International News Settings")
-        max_words = st.slider("Max Words", 200, 2000, 1000)
-        min_words = st.slider("Min Words", 50, 500, 200)
+        # 字数滑块：每格 50 字，更易用
+        max_words = st.slider("Max Words", 200, 2000, 1000, step=50)
+        min_words = st.slider("Min Words", 50, 500, 200, step=50)
         max_articles = st.slider("Max Articles", 10, 100, 30)
         
         # Credentials Input (Fallback)
