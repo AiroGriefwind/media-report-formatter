@@ -17,7 +17,14 @@ from .config import MEDIA_NAME_MAPPINGS
 # Web scraping imports
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import (
+    TimeoutException,
+    ElementClickInterceptedException,
+    StaleElementReferenceException,
+    WebDriverException,
+)
 
 from .wisers_utils import (
     retry_step, 
@@ -623,6 +630,56 @@ def extract_news_id_from_html(hover_html):
     return None
 
 
+def _safe_click(driver, element, st_module=None, attempts: int = 3) -> None:
+    """
+    Click an element robustly on pages with fixed headers/overlays.
+    - Scroll element into viewport center to avoid header covering it
+    - Retry on click interception / transient webdriver issues
+    - Fallback to JS click
+    """
+    last_err = None
+    for n in range(attempts):
+        try:
+            driver.execute_script(
+                "arguments[0].scrollIntoView({block:'center', inline:'nearest'});",
+                element,
+            )
+            # Offset a bit in case a fixed header still overlaps
+            driver.execute_script("window.scrollBy(0, -120);")
+            time.sleep(0.15)
+
+            try:
+                ActionChains(driver).move_to_element(element).pause(0.05).perform()
+            except Exception:
+                # Not critical; proceed to click
+                pass
+
+            element.click()
+            return
+        except (ElementClickInterceptedException, WebDriverException) as e:
+            last_err = e
+            try:
+                driver.execute_script(
+                    "arguments[0].scrollIntoView({block:'center', inline:'nearest'});",
+                    element,
+                )
+                driver.execute_script("window.scrollBy(0, -120);")
+                time.sleep(0.15)
+                driver.execute_script("arguments[0].click();", element)
+                return
+            except Exception as e2:
+                last_err = e2
+                time.sleep(0.2)
+        except StaleElementReferenceException as e:
+            # Caller should re-locate the element
+            last_err = e
+            break
+
+    if st_module and last_err:
+        st_module.write(f"⚠️ 点击重试仍失败: {last_err}")
+    raise last_err if last_err else RuntimeError("safe_click failed without exception")
+
+
 def scrape_articles_by_news_id(driver, wait, articles_to_scrape, st_module=None):
     """
     Scrape articles by locating them via news_id (preferred) or title (fallback).
@@ -702,10 +759,14 @@ def scrape_articles_by_news_id(driver, wait, articles_to_scrape, st_module=None)
             # Now click the article link (same logic as before)
             if target_element:
                 article_link = target_element.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a')
-                article_link.click()
+                # Robust click: overlays like <div class="subtitle"> can intercept clicks
+                handles_before = list(driver.window_handles)
+                _safe_click(driver, article_link, st_module=st_module, attempts=3)
                 
                 # Wait for new window and switch
-                wait.until(EC.number_of_windows_to_be(2))
+                WebDriverWait(driver, 8).until(
+                    lambda d: len(d.window_handles) == len(handles_before) + 1
+                )
                 for window_handle in driver.window_handles:
                     if window_handle != original_window:
                         driver.switch_to.window(window_handle)
