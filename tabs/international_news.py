@@ -209,6 +209,62 @@ def move_to_top(location, index):
         articles.insert(0, article)
         st.session_state.intl_last_update = time.time()
 
+
+# --- ✅ Cross-location move (Selected only) ---
+
+# Display labels (keep internal keys as LOCATION_ORDER strings)
+LOCATION_DISPLAY_ZH = {
+    "United States": "美国",
+    "Russia": "俄罗斯",
+    "Europe": "欧洲",
+    "Middle East": "中东",
+    "Southeast Asia": "东南亚",
+    "Japan": "日本",
+    "Korea": "韩国",
+    "China": "中国",
+    "Others": "其他",
+    "Tech News": "科技新闻",
+}
+
+def _intl_location_choices() -> list:
+    """Return location options for the current tab, stable order + any new keys."""
+    base = list(LOCATION_ORDER)
+    extras = []
+    keys = set()
+    keys.update((st.session_state.get("intl_sorted_dict") or {}).keys())
+    keys.update((st.session_state.get("intl_pool_dict") or {}).keys())
+    for k in sorted(keys):
+        if k not in base:
+            extras.append(k)
+    return base + extras
+
+def move_selected_to_location(from_location: str, selected_index: int, to_location: str):
+    """Move an already-selected article from one location to another (append to end)."""
+    if not to_location or to_location == from_location:
+        return
+
+    src = st.session_state.get("intl_sorted_dict") or {}
+    if from_location not in src:
+        return
+    if selected_index < 0 or selected_index >= len(src[from_location]):
+        return
+
+    article = src[from_location].pop(selected_index)
+
+    # De-dup in destination (by uid) and append to end.
+    uid = article_uid(article)
+    src.setdefault(to_location, [])
+    src[to_location] = [a for a in src[to_location] if article_uid(a) != uid]
+    src[to_location].append(article)
+
+    st.session_state.intl_sorted_dict = src
+    st.session_state.intl_last_update = time.time()
+
+def _on_change_move_selected(widget_key: str, from_location: str, selected_index: int):
+    """Widget callback: read selected dest from session_state and perform move."""
+    to_location = st.session_state.get(widget_key)
+    move_selected_to_location(from_location, selected_index, to_location)
+
 def add_to_selected(location: str, pool_index: int):
     """Move from pool -> selected."""
     article = st.session_state.intl_pool_dict[location].pop(pool_index)
@@ -264,7 +320,7 @@ def render_article_card(article, index, location, total_count, mode: str):
             st.markdown(content)
 
         if mode == "selected":
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3, c4, c5 = st.columns(5)
             with c1:
                 if index > 0:
                     st.button("↑", key=f"up-{keybase}", on_click=move_article, args=(location, index, "up"))
@@ -275,6 +331,38 @@ def render_article_card(article, index, location, total_count, mode: str):
                 if index > 0:
                     st.button("置顶", key=f"top-{keybase}", on_click=move_to_top, args=(location, index))
             with c4:
+                # ✅ “调整”：仅对已选文章开放，移动后仍保持激活（仍在 selected）
+                choices = _intl_location_choices()
+                move_key = f"move-to-{keybase}"
+                current_idx = choices.index(location) if location in choices else 0
+
+                # Prefer popover (newer Streamlit). Fallback: click-to-expand selectbox.
+                if hasattr(st, "popover"):
+                    with st.popover("调整", key=f"adj-pop-{keybase}"):
+                        st.selectbox(
+                            "移动到分区",
+                            options=choices,
+                            index=current_idx,
+                            key=move_key,
+                            format_func=lambda x: LOCATION_DISPLAY_ZH.get(x, x),
+                            on_change=_on_change_move_selected,
+                            args=(move_key, location, index),
+                        )
+                else:
+                    toggle_key = f"show-adj-{keybase}"
+                    if st.button("调整", key=f"adj-btn-{keybase}"):
+                        st.session_state[toggle_key] = not st.session_state.get(toggle_key, False)
+                    if st.session_state.get(toggle_key):
+                        st.selectbox(
+                            "移动到分区",
+                            options=choices,
+                            index=current_idx,
+                            key=move_key,
+                            format_func=lambda x: LOCATION_DISPLAY_ZH.get(x, x),
+                            on_change=_on_change_move_selected,
+                            args=(move_key, location, index),
+                        )
+            with c5:
                 st.button("删除", key=f"rm-{keybase}", type="secondary", on_click=remove_to_pool, args=(location, index))
         else:
             st.button("添加", key=f"add-{keybase}", type="primary", on_click=add_to_selected, args=(location, index))
