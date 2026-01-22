@@ -699,6 +699,7 @@ def scrape_articles_by_news_id(driver, wait, articles_to_scrape, st_module=None)
         news_id = item.get('news_id')
         title = item.get('title', 'Unknown')
         metadata = item.get('formatted_metadata', '')
+        multi_newspapers = bool(item.get("multi_newspapers", False))
         
         try:
             if st_module:
@@ -793,7 +794,9 @@ def scrape_articles_by_news_id(driver, wait, articles_to_scrape, st_module=None)
                     'title': full_title,
                     'metadata_line': full_metadata,
                     'content': content_body,
-                    'full_text': f"{full_title}\n\n{full_metadata}\n\n{content_body}"
+                    'full_text': f"{full_title}\n\n{full_metadata}\n\n{content_body}",
+                    # carry UI flags forward
+                    'multi_newspapers': multi_newspapers,
                 }
                 
                 # Preserve AI analysis if exists
@@ -821,6 +824,26 @@ def scrape_articles_by_news_id(driver, wait, articles_to_scrape, st_module=None)
     
     return scraped_data
 
+
+def _inject_multi_newspaper_placeholder(metadata_line: str) -> str:
+    """
+    Inject '==' into the first part of a metadata line so that
+    utils.document_utils.transform_metadata_line() will render '及多份報章'.
+    We intentionally keep this lightweight and non-destructive.
+    """
+    if not metadata_line:
+        return metadata_line
+    if "==" in metadata_line:
+        return metadata_line
+
+    # Preferred: metadata lines with pipes where the first part is "media page section ..."
+    if "|" in metadata_line:
+        parts = metadata_line.split("|")
+        parts[0] = parts[0].rstrip() + " =="
+        return "|".join(parts)
+
+    # Fallback: no pipes, append token at end.
+    return metadata_line.rstrip() + " =="
 
 
 @retry_step
@@ -858,7 +881,10 @@ def create_international_news_report(**kwargs):
 
             # ✅ CHANGED: Add full metadata line from article page
             if article.get('metadata_line'):
-                metadata_para = doc.add_paragraph(article['metadata_line'])
+                metadata_line = article['metadata_line']
+                if bool(article.get("multi_newspapers", False)):
+                    metadata_line = _inject_multi_newspaper_placeholder(metadata_line)
+                metadata_para = doc.add_paragraph(metadata_line)
                 metadata_para.style = doc.styles['Normal']
 
             # Add content

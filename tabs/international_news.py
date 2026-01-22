@@ -265,6 +265,21 @@ def _on_change_move_selected(widget_key: str, from_location: str, selected_index
     to_location = st.session_state.get(widget_key)
     move_selected_to_location(from_location, selected_index, to_location)
 
+def _set_multi_newspapers(location: str, selected_index: int, enabled: bool):
+    """Persist '及多份报章' toggle on the selected article."""
+    src = st.session_state.get("intl_sorted_dict") or {}
+    if location not in src:
+        return
+    if selected_index < 0 or selected_index >= len(src[location]):
+        return
+    src[location][selected_index]["multi_newspapers"] = bool(enabled)
+    st.session_state.intl_sorted_dict = src
+    st.session_state.intl_last_update = time.time()
+
+def _on_change_multi_newspapers(widget_key: str, location: str, selected_index: int):
+    enabled = bool(st.session_state.get(widget_key, False))
+    _set_multi_newspapers(location, selected_index, enabled)
+
 def add_to_selected(location: str, pool_index: int):
     """Move from pool -> selected."""
     article = st.session_state.intl_pool_dict[location].pop(pool_index)
@@ -335,12 +350,20 @@ def render_article_card(article, index, location, total_count, mode: str):
                 choices = _intl_location_choices()
                 move_key = f"move-to-{keybase}"
                 current_idx = choices.index(location) if location in choices else 0
+                multi_key = f"multi-news-{keybase}"
 
                 # Prefer popover (newer Streamlit). Fallback: click-to-expand selectbox.
                 if hasattr(st, "popover"):
                     # NOTE: st.popover() does NOT accept `key=` in some Streamlit versions.
                     # The inner selectbox has a unique `key`, so the popover itself can keep a simple label.
                     with st.popover("调整"):
+                        st.checkbox(
+                            "及多份报章",
+                            value=bool(article.get("multi_newspapers", False)),
+                            key=multi_key,
+                            on_change=_on_change_multi_newspapers,
+                            args=(multi_key, location, index),
+                        )
                         st.selectbox(
                             "移动到分区",
                             options=choices,
@@ -355,6 +378,13 @@ def render_article_card(article, index, location, total_count, mode: str):
                     if st.button("调整", key=f"adj-btn-{keybase}"):
                         st.session_state[toggle_key] = not st.session_state.get(toggle_key, False)
                     if st.session_state.get(toggle_key):
+                        st.checkbox(
+                            "及多份报章",
+                            value=bool(article.get("multi_newspapers", False)),
+                            key=multi_key,
+                            on_change=_on_change_multi_newspapers,
+                            args=(multi_key, location, index),
+                        )
                         st.selectbox(
                             "移动到分区",
                             options=choices,
