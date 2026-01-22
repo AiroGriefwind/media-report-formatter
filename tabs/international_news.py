@@ -338,7 +338,10 @@ def render_article_card(article, index, location, total_count, mode: str):
 
                 # Prefer popover (newer Streamlit). Fallback: click-to-expand selectbox.
                 if hasattr(st, "popover"):
-                    with st.popover("调整", key=f"adj-pop-{keybase}"):
+                    # NOTE: st.popover() does NOT accept `key=` in some Streamlit versions.
+                    # Use an invisible suffix to keep labels unique without changing UI text.
+                    popover_label = f"调整\u200b{uid}"
+                    with st.popover(popover_label):
                         st.selectbox(
                             "移动到分区",
                             options=choices,
