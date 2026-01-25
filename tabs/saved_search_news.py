@@ -453,18 +453,40 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
             st.success("🎉 **今日任務已100%完成！立即下載最終報告**")
             col_download, col_rollback = st.columns([0.7, 0.3])
             with col_download:
-                if st.button("📥 下載最終 Word 報告（100%進度）", type="primary", use_container_width=True):
+                if st.button(
+                    "📥 下載最終 Word 報告（100%進度）",
+                    type="primary",
+                    use_container_width=True,
+                    key=f"{prefix}-smarthome-download-final",
+                ):
                     restore_progress(fb_logger, prefix, "finished", base_folder, category_label)
             with col_rollback:
-                if st.button("↩️ 回到50%调整排序", type="secondary", use_container_width=True, on_click=rollback_to_ui_sorting, args=(fb_logger, prefix, base_folder, category_label)):
+                if st.button(
+                    "↩️ 回到50%调整排序",
+                    type="secondary",
+                    use_container_width=True,
+                    key=f"{prefix}-smarthome-rollback",
+                    on_click=rollback_to_ui_sorting,
+                    args=(fb_logger, prefix, base_folder, category_label),
+                ):
                     pass
         elif progress["user_list"]:
             st.warning("⏳ **今日已完成50%（用戶排序），繼續全文爬取**")
-            if st.button("👤 恢復排序界面繼續（50%進度）", type="primary", use_container_width=True):
+            if st.button(
+                "👤 恢復排序界面繼續（50%進度）",
+                type="primary",
+                use_container_width=True,
+                key=f"{prefix}-smarthome-resume-sort",
+            ):
                 restore_progress(fb_logger, prefix, "ui_sorting", base_folder, category_label)
         elif progress["preview"]:
             st.info(f"🧾 懸浮預覽已完成 ({progress['preview_count']} 篇文章)")
-            if st.button(f"🎯 展示目前預覽進度 ({progress['preview_count']} 條)", type="secondary", use_container_width=True):
+            if st.button(
+                f"🎯 展示目前預覽進度 ({progress['preview_count']} 條)",
+                type="secondary",
+                use_container_width=True,
+                key=f"{prefix}-smarthome-show-preview",
+            ):
                 preview_list = fb_logger.load_json_from_date_folder("preview_articles.json", [], base_folder=base_folder)
                 st.session_state[f"{prefix}_articles_list"] = preview_list
 
@@ -477,7 +499,12 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                 st.rerun()
         else:
             st.success("🆕 **今日全新任務，開始抓取預覽**")
-            if st.button("🚀 開始新任務（0%進度）", type="primary", use_container_width=True):
+            if st.button(
+                "🚀 開始新任務（0%進度）",
+                type="primary",
+                use_container_width=True,
+                key=f"{prefix}-smarthome-start-new",
+            ):
                 st.session_state[stage_key] = "init"
                 st.rerun()
 
@@ -485,7 +512,7 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
 
         col_a, col_b, col_c = st.columns(3)
         with col_a:
-            if st.button("🔄 忽略進度重來", type="secondary"):
+            if st.button("🔄 忽略進度重來", type="secondary", key=f"{prefix}-smarthome-ignore"):
                 for key in [
                     stage_key,
                     f"{prefix}_sorted_dict",
@@ -500,7 +527,7 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                 st.session_state[stage_key] = "init"
                 st.rerun()
         with col_b:
-            if st.button("📋 查看 JSON 數據", type="secondary"):
+            if st.button("📋 查看 JSON 數據", type="secondary", key=f"{prefix}-smarthome-view-json"):
                 st.session_state[stage_key] = "data_viewer"
                 st.rerun()
 
@@ -508,7 +535,7 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
 
     if st.session_state[stage_key] == "data_viewer":
         st.header("📋 JSON 數據檢視")
-        if st.button("返回進度頁"):
+        if st.button("返回進度頁", key=f"{prefix}-data-viewer-back-top"):
             st.session_state[stage_key] = "smart_home"
             st.rerun()
         col1, col2, col3 = st.columns(3)
@@ -518,14 +545,14 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
             st.json(fb_logger.load_json_from_date_folder("user_final_list.json", {}, base_folder=base_folder))
         with col3:
             st.json(fb_logger.load_json_from_date_folder("full_scraped_articles.json", [], base_folder=base_folder))
-        if st.button("返回進度頁"):
+        if st.button("返回進度頁", key=f"{prefix}-data-viewer-back-bottom"):
             st.session_state[stage_key] = "smart_home"
             st.rerun()
         return
 
     try:
         if st.session_state[stage_key] == "init":
-            if st.button("🚀 開始任務：抓取預覽"):
+            if st.button("🚀 開始任務：抓取預覽", key=f"{prefix}-init-start"):
                 with st.spinner("第一步：登錄 Wisers 並抓取預覽..."):
                     driver = setup_webdriver(headless=run_headless, st_module=st)
                     if not driver:
@@ -600,11 +627,11 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
 
             col_g1, col_g2 = st.columns(2)
             with col_g1:
-                if st.button("🔄 重新開始 (清除數據)"):
+                if st.button("🔄 重新開始 (清除數據)", key=f"{prefix}-ui-reset"):
                     st.session_state[stage_key] = "init"
                     st.rerun()
             with col_g2:
-                if st.button("💾 手動保存排序"):
+                if st.button("💾 手動保存排序", key=f"{prefix}-ui-save"):
                     fb_logger.save_json_to_date_folder(st.session_state[f"{prefix}_sorted_dict"], "user_final_list.json", base_folder=base_folder)
                     st.success("✅ 已保存用戶排序清單！")
 
@@ -636,7 +663,12 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                             render_article_card(prefix, article, j, category, len(pool), mode="pool")
 
             st.write("---")
-            if st.button("✅ 確認排序並開始全文爬取", type="primary", use_container_width=True):
+            if st.button(
+                "✅ 確認排序並開始全文爬取",
+                type="primary",
+                use_container_width=True,
+                key=f"{prefix}-ui-confirm",
+            ):
                 fb_logger.save_json_to_date_folder(st.session_state[f"{prefix}_sorted_dict"], "user_final_list.json", base_folder=base_folder)
                 st.success("💾 用戶排序已自動保存至 Firebase")
                 st.session_state[stage_key] = "final_scraping"
@@ -652,7 +684,7 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
 
             if not final_list:
                 st.warning("沒有文章被選中。")
-                if st.button("返回"):
+                if st.button("返回", key=f"{prefix}-final-back"):
                     st.session_state[stage_key] = "ui_sorting"
                     st.rerun()
                 return
@@ -696,7 +728,7 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
 
                 except Exception as e:
                     st.error(f"爬取失敗: {e}")
-                    if st.button("重試"):
+                    if st.button("重試", key=f"{prefix}-final-retry"):
                         st.rerun()
 
         if st.session_state[stage_key] == "finished":
@@ -737,6 +769,7 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     type="primary",
                     use_container_width=True,
+                    key=f"{prefix}-download-full",
                 )
             with colB:
                 st.download_button(
@@ -746,6 +779,7 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     type="secondary",
                     use_container_width=True,
+                    key=f"{prefix}-download-trim",
                 )
             with colC:
                 st.button(
@@ -754,6 +788,7 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                     use_container_width=True,
                     on_click=rollback_to_ui_sorting,
                     args=(fb_logger, prefix, base_folder, category_label),
+                    key=f"{prefix}-finished-rollback",
                 )
 
             col1, col2 = st.columns(2)
@@ -764,7 +799,7 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
 
             st.success(f"💾 完整備份: `{base_folder}/{today}/`")
 
-            if st.button("🔄 開始新任務"):
+            if st.button("🔄 開始新任務", key=f"{prefix}-finished-new"):
                 st.session_state[stage_key] = "smart_home"
                 st.rerun()
 
