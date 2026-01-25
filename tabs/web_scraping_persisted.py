@@ -417,6 +417,7 @@ def render_web_scraping_persisted_tab():
                 "Authors to Search (one per line)",
                 value="李先知\n余錦賢\n傅流螢\n黄锦辉",
                 help="Enter one author name per line. The script will search for the latest article from each.",
+                key="ws_firebase_authors_input",
             )
 
             if st.button("🚀 Start Scraping and Generate Report", type="primary"):
