@@ -235,12 +235,20 @@ def set_date_range_period(**kwargs):
         driver.execute_script("arguments[0].click();", item)
         time.sleep(0.2)
 
-        apply_btn = wait.until(
-            EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, "ul[name='dataRangePeriod'] li[name='dateRangePeriod_apply'] a.btn")
+        try:
+            apply_btn = wait.until(
+                EC.element_to_be_clickable(
+                    (By.CSS_SELECTOR, "ul[name='dataRangePeriod'] li[name='dateRangePeriod_apply'] a.btn")
+                )
             )
-        )
-        driver.execute_script("arguments[0].click();", apply_btn)
+            driver.execute_script("arguments[0].click();", apply_btn)
+        except TimeoutException:
+            # Some pages auto-apply without a clickable "apply" state.
+            if st:
+                st.warning("日期范围已切换，但未检测到可点击的“应用”按钮，继续执行。")
+            # Try to close the dropdown to avoid overlays
+            driver.execute_script("document.body.click();")
+
         try:
             WebDriverWait(driver, 5).until(
                 EC.invisibility_of_element_located(
