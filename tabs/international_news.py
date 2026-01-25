@@ -28,6 +28,8 @@ from utils.wisers_utils import (
     switch_language_to_traditional_chinese,
     logout,
     robust_logout_request,
+    set_date_range_period,
+    is_hkt_monday,
 )
 from utils.web_scraping_utils import scrape_hover_popovers
 from utils.international_news_utils import (
@@ -323,7 +325,9 @@ def render_article_card(article, index, location, total_count, mode: str):
         col1, col2 = st.columns([0.85, 0.15])
         with col1:
             prefix = f"{index + 1}. " if mode == "selected" else ""
-            st.markdown(f"**{prefix}{article.get('title','(no title)')}**")
+            day_tag = article.get("day_tag")
+            day_prefix = f"【{day_tag}】" if day_tag else ""
+            st.markdown(f"**{prefix}{day_prefix}{article.get('title','(no title)')}**")
         with col2:
             st.caption(f"Score: {score}")
 
@@ -662,19 +666,60 @@ def _handle_international_news_logic(
                     perform_login(driver=driver, wait=wait, group_name=group_name_intl, username=username_intl, password=password_intl, api_key=api_key_intl, st_module=st)
                     switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
                     
-                    run_international_news_task(driver=driver, wait=wait, st_module=st, max_articles=max_articles)
-                    
-                    
+                    is_monday = is_hkt_monday()
+                    per_period_max = max(1, max_articles // 2) if is_monday else max_articles
+                    per_period_max = max(1, max_articles // 2) if is_monday else max_articles
+                    periods = [("today", None)]
+                    if is_monday:
+                        periods.append(("yesterday", "周日"))
 
-                    # Scrape hover popovers
-                    rawlist = []  # 初始化
-                    rawlist = scrape_hover_popovers(
-                        driver=driver,
-                        wait=wait,
-                        st_module=st,
-                        max_articles=max_articles,
-                    ) or []
-                    if st: st.info(f"✅ 抓取了 {len(rawlist)} 篇懸停預覽")
+                    combined_raw = []
+
+                    for period_name, day_tag in periods:
+                        if period_name != "today":
+                            set_date_range_period(
+                                driver=driver,
+                                wait=wait,
+                                st_module=st,
+                                period_name=period_name,
+                            )
+
+                        _, search_meta = run_international_news_task(
+                            driver=driver,
+                            wait=wait,
+                            st_module=st,
+                            max_articles=per_period_max,
+                            return_meta=True,
+                        )
+
+                        # Scrape hover popovers
+                        rawlist = scrape_hover_popovers(
+                            driver=driver,
+                            wait=wait,
+                            st_module=st,
+                            max_articles=per_period_max,
+                        ) or []
+                        raw_count = len(rawlist)
+                        if day_tag:
+                            for item in rawlist:
+                                item["day_tag"] = day_tag
+
+                        if st:
+                            st.info(f"✅ {period_name} 抓取了 {raw_count} 篇懸停預覽")
+
+                        if not search_meta.get("saved_search_found", True):
+                            st.error("❌ 未找到已保存搜索：國際新聞")
+                            return
+
+                        if search_meta.get("no_results", False):
+                            st.warning(f"⚠️ {period_name} 搜索结果为 0 篇。")
+                        elif raw_count == 0:
+                            st.warning(f"⚠️ {period_name} 搜索有结果，但懸浮爬取為 0 篇。")
+
+                        combined_raw.extend(rawlist)
+
+                    rawlist = combined_raw
+                    if st: st.info(f"✅ 合併後共 {len(rawlist)} 篇懸停預覽")
 
                     # Logout before filter
                     st.info("暫時登出以釋放 Session...")
@@ -842,10 +887,39 @@ def _handle_international_news_logic(
                     
                     
                     # ✅ 重新搜索以显示结果页（但不再依赖索引）
-                    run_international_news_task(driver=driver, wait=wait, st_module=st)
-                    
-                    # ✅ 使用新函数：按 news_id/标题定位而非索引
-                    full_articles_data = scrape_articles_by_news_id(driver, wait, final_list, st_module=st)
+                    is_monday = is_hkt_monday()
+                    if is_monday:
+                        today_items = [a for a in final_list if a.get("day_tag") != "周日"]
+                        sunday_items = [a for a in final_list if a.get("day_tag") == "周日"]
+                        full_articles_data = []
+
+                        if today_items:
+                            set_date_range_period(
+                                driver=driver, wait=wait, st_module=st, period_name="today"
+                            )
+                            run_international_news_task(
+                                driver=driver, wait=wait, st_module=st, max_articles=per_period_max
+                            )
+                            full_articles_data.extend(
+                                scrape_articles_by_news_id(driver, wait, today_items, st_module=st)
+                            )
+
+                        if sunday_items:
+                            set_date_range_period(
+                                driver=driver, wait=wait, st_module=st, period_name="yesterday"
+                            )
+                            run_international_news_task(
+                                driver=driver, wait=wait, st_module=st, max_articles=per_period_max
+                            )
+                            full_articles_data.extend(
+                                scrape_articles_by_news_id(driver, wait, sunday_items, st_module=st)
+                            )
+                    else:
+                        run_international_news_task(
+                            driver=driver, wait=wait, st_module=st, max_articles=per_period_max
+                        )
+                        # ✅ 使用新函数：按 news_id/标题定位而非索引
+                        full_articles_data = scrape_articles_by_news_id(driver, wait, final_list, st_module=st)
                     
                     # ✅ 保存最終爬取結果
                     st.session_state.intl_final_articles = full_articles_data
@@ -986,7 +1060,8 @@ def render_international_news_tab():
         # 字数滑块：每格 50 字，更易用
         max_words = st.slider("Max Words", 200, 2000, 1000, step=50)
         min_words = st.slider("Min Words", 50, 500, 200, step=50)
-        max_articles = st.slider("Max Articles", 10, 100, 30)
+        default_max_articles = 40 if is_hkt_monday() else 30
+        max_articles = st.slider("Max Articles", 10, 100, default_max_articles)
         
         # Credentials Input (Fallback)
         group, user, pwd = _get_credentials_intl()

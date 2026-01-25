@@ -9,6 +9,8 @@ import os
 import requests
 import traceback
 from functools import wraps
+from datetime import datetime
+import pytz
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -22,6 +24,8 @@ from twocaptcha import TwoCaptcha
 from .config import WISERS_URL
 
 from utils.firebase_logging import get_logger
+
+HKT = pytz.timezone("Asia/Hong_Kong")
 
 # =============================================================================
 # RETRY DECORATOR
@@ -159,6 +163,53 @@ def clear_login_fields(driver):
                     elems[0].send_keys('\ue003')       # Del
     except Exception as e:
         print("Field clearing failed:", e)
+
+
+def is_hkt_monday() -> bool:
+    return datetime.now(HKT).weekday() == 0
+
+
+@retry_step
+def set_date_range_period(**kwargs):
+    """
+    Set Wisers date range via dropdown.
+    period_name: "today" | "yesterday" | "last-week" | "last-month" | "last-6-months" | "last-year" | "custom" | "2025"
+    """
+    driver = kwargs.get("driver")
+    wait = kwargs.get("wait")
+    st = kwargs.get("st_module")
+    period_name = kwargs.get("period_name", "").strip()
+    if not period_name:
+        return
+
+    try:
+        toggle = wait.until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "li#DatePickerApp a.dropdown-toggle.btn"))
+        )
+        driver.execute_script("arguments[0].click();", toggle)
+        menu = wait.until(
+            EC.visibility_of_element_located(
+                (By.CSS_SELECTOR, "ul.dropdown-menu.dropdown-menu-right.datepicker-opt[name='dataRangePeriod']")
+            )
+        )
+        item = wait.until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, f"ul[name='dataRangePeriod'] li[name='{period_name}'] a"))
+        )
+        driver.execute_script("arguments[0].click();", item)
+
+        apply_btn = wait.until(
+            EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, "ul[name='dataRangePeriod'] li[name='dateRangePeriod_apply'] a.btn")
+            )
+        )
+        driver.execute_script("arguments[0].click();", apply_btn)
+        time.sleep(1.5)
+        if st:
+            st.write(f"📅 日期范围已切换到：{period_name}")
+    except Exception as e:
+        if st:
+            st.warning(f"日期范围切换失败: {e}")
+        raise
 
 
 @retry_step

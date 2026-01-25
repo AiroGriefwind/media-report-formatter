@@ -17,6 +17,8 @@ from utils.wisers_utils import (
     perform_login,
     switch_language_to_traditional_chinese,
     robust_logout_request,
+    set_date_range_period,
+    is_hkt_monday,
 )
 from utils.web_scraping_utils import scrape_hover_popovers
 from utils import international_news_utils as intl_utils
@@ -268,7 +270,9 @@ def render_article_card(prefix: str, article: dict, index: int, category_label: 
         col1, col2 = st.columns([0.85, 0.15])
         with col1:
             prefix_text = f"{index + 1}. " if mode == "selected" else ""
-            st.markdown(f"**{prefix_text}{article.get('title', '(no title)')}**")
+            day_tag = article.get("day_tag")
+            day_prefix = f"【{day_tag}】" if day_tag else ""
+            st.markdown(f"**{prefix_text}{day_prefix}{article.get('title', '(no title)')}**")
         with col2:
             st.caption(f"Score: {score_text}")
 
@@ -562,19 +566,76 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                     perform_login(driver=driver, wait=wait, group_name=group_name, username=username, password=password, api_key=api_key, st_module=st)
                     switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
 
-                    _, search_meta = run_saved_search_task(
-                        driver=driver,
-                        wait=wait,
-                        st_module=st,
-                        max_articles=max_articles,
-                        saved_search_name=saved_search_name,
-                        return_meta=True,
-                    )
+                    is_monday = is_hkt_monday()
+                    per_period_max = max(1, max_articles // 2) if is_monday else max_articles
+                    per_period_max = max(1, max_articles // 2) if is_monday else max_articles
+                    periods = [("today", None)]
+                    if is_monday:
+                        periods.append(("yesterday", "周日"))
 
-                    rawlist = scrape_hover_popovers(driver=driver, wait=wait, st_module=st, max_articles=max_articles) or []
-                    raw_count = len(rawlist)
-                    if st:
-                        st.info(f"✅ 抓取了 {raw_count} 篇懸停預覽")
+                    combined_raw = []
+                    combined_filtered = []
+
+                    for period_name, day_tag in periods:
+                        if period_name != "today":
+                            set_date_range_period(
+                                driver=driver,
+                                wait=wait,
+                                st_module=st,
+                                period_name=period_name,
+                            )
+
+                        _, search_meta = run_saved_search_task(
+                            driver=driver,
+                            wait=wait,
+                            st_module=st,
+                            max_articles=per_period_max,
+                            saved_search_name=saved_search_name,
+                            return_meta=True,
+                        )
+
+                        rawlist = scrape_hover_popovers(
+                            driver=driver, wait=wait, st_module=st, max_articles=per_period_max
+                        ) or []
+                        raw_count = len(rawlist)
+                        if day_tag:
+                            for item in rawlist:
+                                item["day_tag"] = day_tag
+
+                        if st:
+                            st.info(f"✅ {period_name} 抓取了 {raw_count} 篇懸停預覽")
+
+                        filtered_rawlist = []
+                        for item in rawlist:
+                            hover_text = item.get("hover_text", "")
+                            word_matches = re.findall(r"(\\d+)\\s*字", hover_text)
+                            if word_matches:
+                                word_count = int(word_matches[0])
+                                if min_words <= word_count <= max_words:
+                                    filtered_rawlist.append(item)
+                                else:
+                                    if st:
+                                        st.write(f"已過濾: {item.get('title', 'Unknown')} ({word_count} 字)")
+                            else:
+                                filtered_rawlist.append(item)
+
+                        filtered_count = len(filtered_rawlist)
+                        if st:
+                            st.info(f"📊 {period_name} 字數過濾後剩餘: {filtered_count} 篇")
+
+                        if not search_meta.get("saved_search_found", True):
+                            st.error(f"❌ 未找到已保存搜索：{saved_search_name}")
+                            return
+
+                        if search_meta.get("no_results", False):
+                            st.warning(f"⚠️ {period_name} 搜索结果为 0 篇。")
+                        elif raw_count == 0:
+                            st.warning(f"⚠️ {period_name} 搜索有结果，但懸浮爬取為 0 篇。")
+                        elif raw_count > 0 and filtered_count == 0:
+                            st.warning(f"⚠️ {period_name} 搜索有結果，但全部被字數過濾條件篩掉。")
+
+                        combined_raw.extend(rawlist)
+                        combined_filtered.extend(filtered_rawlist)
 
                     st.info("暫時登出以釋放 Session...")
                     try:
@@ -583,35 +644,7 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                         st.warning(f"登出時出現問題: {e}")
                     driver.quit()
 
-                    filtered_rawlist = []
-                    for item in rawlist:
-                        hover_text = item.get("hover_text", "")
-                        word_matches = re.findall(r"(\\d+)\\s*字", hover_text)
-                        if word_matches:
-                            word_count = int(word_matches[0])
-                            if min_words <= word_count <= max_words:
-                                filtered_rawlist.append(item)
-                            else:
-                                if st:
-                                    st.write(f"已過濾: {item.get('title', 'Unknown')} ({word_count} 字)")
-                        else:
-                            filtered_rawlist.append(item)
-
-                    rawlist = filtered_rawlist
-                    filtered_count = len(rawlist)
-                    if st:
-                        st.info(f"📊 字數過濾後剩餘: {filtered_count} 篇")
-
-                    if not search_meta.get("saved_search_found", True):
-                        st.error(f"❌ 未找到已保存搜索：{saved_search_name}")
-                        return
-
-                    if search_meta.get("no_results", False):
-                        st.warning("⚠️ 已保存搜索有执行，但搜索结果为 0 篇。")
-                    elif raw_count == 0:
-                        st.warning("⚠️ 搜索有结果，但懸浮爬取為 0 篇。")
-                    elif raw_count > 0 and filtered_count == 0:
-                        st.warning("⚠️ 搜索有結果，但全部被字數過濾條件篩掉。")
+                    rawlist = combined_filtered
 
                     preview_list = []
                     for i, item in enumerate(rawlist):
@@ -716,9 +749,50 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                     perform_login(driver=driver, wait=wait, group_name=group_name, username=username, password=password, api_key=api_key, st_module=st)
                     switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
 
-                    run_saved_search_task(driver=driver, wait=wait, st_module=st, max_articles=max_articles, saved_search_name=saved_search_name)
+                    is_monday = is_hkt_monday()
+                    if is_monday:
+                        today_items = [a for a in final_list if a.get("day_tag") != "周日"]
+                        sunday_items = [a for a in final_list if a.get("day_tag") == "周日"]
+                        full_articles_data = []
 
-                    full_articles_data = scrape_articles_by_news_id(driver, wait, final_list, st_module=st)
+                        if today_items:
+                            set_date_range_period(
+                                driver=driver, wait=wait, st_module=st, period_name="today"
+                            )
+                            run_saved_search_task(
+                                driver=driver,
+                                wait=wait,
+                                st_module=st,
+                                max_articles=per_period_max,
+                                saved_search_name=saved_search_name,
+                            )
+                            full_articles_data.extend(
+                                scrape_articles_by_news_id(driver, wait, today_items, st_module=st)
+                            )
+
+                        if sunday_items:
+                            set_date_range_period(
+                                driver=driver, wait=wait, st_module=st, period_name="yesterday"
+                            )
+                            run_saved_search_task(
+                                driver=driver,
+                                wait=wait,
+                                st_module=st,
+                                max_articles=per_period_max,
+                                saved_search_name=saved_search_name,
+                            )
+                            full_articles_data.extend(
+                                scrape_articles_by_news_id(driver, wait, sunday_items, st_module=st)
+                            )
+                    else:
+                        run_saved_search_task(
+                            driver=driver,
+                            wait=wait,
+                            st_module=st,
+                            max_articles=per_period_max,
+                            saved_search_name=saved_search_name,
+                        )
+                        full_articles_data = scrape_articles_by_news_id(driver, wait, final_list, st_module=st)
 
                     st.session_state[f"{prefix}_final_articles"] = full_articles_data
                     fb_logger.save_json_to_date_folder(full_articles_data, "full_scraped_articles.json", base_folder=base_folder)
@@ -853,7 +927,8 @@ def render_greater_china_keywords_tab():
         st.subheader(f"{config['tab_title']} Settings")
         max_words = st.slider("Max Words", 200, 2000, 1000, step=50, key=f"{config['prefix']}-max-words")
         min_words = st.slider("Min Words", 50, 500, 200, step=50, key=f"{config['prefix']}-min-words")
-        max_articles = st.slider("Max Articles", 10, 100, 30, key=f"{config['prefix']}-max-articles")
+        default_max_articles = 40 if is_hkt_monday() else 30
+        max_articles = st.slider("Max Articles", 10, 100, default_max_articles, key=f"{config['prefix']}-max-articles")
 
         group, user, pwd = _get_credentials()
         api_key = _get_api_key()
@@ -883,7 +958,8 @@ def render_hong_kong_politics_news_tab():
         st.subheader(f"{config['tab_title']} Settings")
         max_words = st.slider("Max Words", 200, 2000, 1000, step=50, key=f"{config['prefix']}-max-words")
         min_words = st.slider("Min Words", 50, 500, 200, step=50, key=f"{config['prefix']}-min-words")
-        max_articles = st.slider("Max Articles", 10, 100, 30, key=f"{config['prefix']}-max-articles")
+        default_max_articles = 40 if is_hkt_monday() else 30
+        max_articles = st.slider("Max Articles", 10, 100, default_max_articles, key=f"{config['prefix']}-max-articles")
 
         group, user, pwd = _get_credentials()
         api_key = _get_api_key()
