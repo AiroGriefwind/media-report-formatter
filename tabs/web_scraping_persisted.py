@@ -383,7 +383,7 @@ def render_web_scraping_persisted_tab():
                     st.session_state.ws_stage = "data_viewer"
                     st.rerun()
 
-            st.stop()
+            return
 
         if st.session_state.ws_stage == "data_viewer":
             st.header("📋 JSON 數據檢視")
@@ -400,7 +400,7 @@ def render_web_scraping_persisted_tab():
             if st.button("返回進度頁"):
                 st.session_state.ws_stage = "smart_home"
                 st.rerun()
-            st.stop()
+            return
 
         if st.session_state.ws_stage == "scraping":
             st.subheader("Web Scraping and Report Generation")

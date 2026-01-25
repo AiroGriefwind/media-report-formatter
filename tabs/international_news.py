@@ -630,7 +630,7 @@ def _handle_international_news_logic(
                 st.session_state.intl_stage = "data_viewer"
                 st.rerun()
         
-        st.stop()
+        return
     
     elif st.session_state.intl_stage == "data_viewer":
         st.header("📋 JSON 數據檢視")
@@ -647,7 +647,7 @@ def _handle_international_news_logic(
         if st.button("返回進度頁"):
             st.session_state.intl_stage = "smart_home"
             st.rerun()
-        st.stop()
+        return
 
     try:
         # === Stage 1: Login, Search, Preview, AI Analysis ===
@@ -655,7 +655,8 @@ def _handle_international_news_logic(
             if st.button("🚀 開始任務：抓取預覽 + AI 分析"):
                 with st.spinner("第一步：登錄 Wisers 並抓取預覽..."):
                     driver = setup_webdriver(headless=run_headless_intl, st_module=st)
-                    if not driver: st.stop()
+                    if not driver:
+                        return
                     
                     wait = WebDriverWait(driver, 20)
                     perform_login(driver=driver, wait=wait, group_name=group_name_intl, username=username_intl, password=password_intl, api_key=api_key_intl, st_module=st)
@@ -830,7 +831,7 @@ def _handle_international_news_logic(
                 if st.button("返回"):
                     st.session_state.intl_stage = "ui_sorting"
                     st.rerun()
-                st.stop()
+                return
 
             with st.spinner(f"正在爬取 {len(final_list)} 篇文章的全文內容..."):
                 try:
@@ -904,7 +905,7 @@ def _handle_international_news_logic(
                         st.session_state.intl_final_docx = docx_bytes
                     else:
                         st.error("❌ 無法恢復最終報告，請重新執行爬取")
-                        st.stop()
+                        return
             
             # --- 确保 trimmed 已恢复/已生成 ---
             ensure_trimmed_docx_in_firebase_and_session(fb_logger)
