@@ -183,19 +183,57 @@ def set_date_range_period(**kwargs):
         return
 
     try:
+        label_map = {
+            "today": "今天",
+            "yesterday": "昨天",
+            "last-week": "最近一周",
+            "last-month": "最近一个月",
+            "last-6-months": "最近六个月",
+            "last-year": "最近一年",
+            "2025": "2025",
+            "custom": "自定义",
+        }
+
         toggle = wait.until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, "li#DatePickerApp a.dropdown-toggle.btn"))
         )
         driver.execute_script("arguments[0].click();", toggle)
-        menu = wait.until(
-            EC.visibility_of_element_located(
-                (By.CSS_SELECTOR, "ul.dropdown-menu.dropdown-menu-right.datepicker-opt[name='dataRangePeriod']")
+        time.sleep(0.5)
+
+        menu = None
+        for _ in range(3):
+            menus = driver.find_elements(
+                By.CSS_SELECTOR,
+                "ul.dropdown-menu.dropdown-menu-right.datepicker-opt[name='dataRangePeriod']",
             )
+            if menus:
+                menu = menus[0]
+                break
+            time.sleep(0.5)
+            driver.execute_script("arguments[0].click();", toggle)
+
+        if not menu:
+            raise Exception("Date range menu not found")
+
+        item = None
+        elems = driver.find_elements(
+            By.CSS_SELECTOR,
+            f"ul[name='dataRangePeriod'] li[name='{period_name}'] a",
         )
-        item = wait.until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, f"ul[name='dataRangePeriod'] li[name='{period_name}'] a"))
-        )
+        if not elems:
+            label = label_map.get(period_name)
+            if label:
+                elems = driver.find_elements(
+                    By.XPATH,
+                    f"//ul[@name='dataRangePeriod']//li/a[contains(normalize-space(), '{label}')]",
+                )
+        if elems:
+            item = elems[0]
+        else:
+            raise Exception(f"Date range option not found: {period_name}")
+
         driver.execute_script("arguments[0].click();", item)
+        time.sleep(0.2)
 
         apply_btn = wait.until(
             EC.element_to_be_clickable(
@@ -203,7 +241,16 @@ def set_date_range_period(**kwargs):
             )
         )
         driver.execute_script("arguments[0].click();", apply_btn)
-        time.sleep(1.5)
+        try:
+            WebDriverWait(driver, 5).until(
+                EC.invisibility_of_element_located(
+                    (By.CSS_SELECTOR, "ul.dropdown-menu.dropdown-menu-right.datepicker-opt[name='dataRangePeriod']")
+                )
+            )
+        except TimeoutException:
+            pass
+
+        time.sleep(1.0)
         if st:
             st.write(f"📅 日期范围已切换到：{period_name}")
     except Exception as e:
