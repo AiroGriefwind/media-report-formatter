@@ -350,15 +350,15 @@ def render_web_scraping_persisted_tab():
 
             if progress["has_report"]:
                 st.success("🎉 已完成資料與報告，可直接下載")
-            if st.button("📥 進入下載頁", type="primary", use_container_width=True, key="ws_fb_go_download"):
+                if st.button("📥 進入下載頁", type="primary", use_container_width=True, key="ws_fb_go_download"):
                     restore_ws_progress("finished")
             elif progress["has_authors_data"] or progress["has_editorials_data"]:
                 st.warning("⏳ 已有爬取資料，尚未生成/恢復報告")
-            if st.button("♻️ 恢復資料並生成報告", type="primary", use_container_width=True, key="ws_fb_restore_report"):
+                if st.button("♻️ 恢復資料並生成報告", type="primary", use_container_width=True, key="ws_fb_restore_report"):
                     restore_ws_progress("finished")
             else:
                 st.success("🆕 今日尚無資料，開始新的爬取")
-            if st.button("🚀 開始爬取", type="primary", use_container_width=True, key="ws_fb_start_scraping"):
+                if st.button("🚀 開始爬取", type="primary", use_container_width=True, key="ws_fb_start_scraping"):
                     st.session_state.ws_stage = "scraping"
                     st.rerun()
 
@@ -366,7 +366,7 @@ def render_web_scraping_persisted_tab():
 
             col_a, col_b = st.columns(2)
             with col_a:
-            if st.button("🔄 忽略進度重來", type="secondary", use_container_width=True, key="ws_fb_restart"):
+                if st.button("🔄 忽略進度重來", type="secondary", use_container_width=True, key="ws_fb_restart"):
                     for key in [
                         "ws_stage",
                         "ws_authors_list",
@@ -379,7 +379,7 @@ def render_web_scraping_persisted_tab():
                     st.session_state.ws_stage = "scraping"
                     st.rerun()
             with col_b:
-            if st.button("📋 查看 JSON 數據", type="secondary", use_container_width=True, key="ws_fb_view_json"):
+                if st.button("📋 查看 JSON 數據", type="secondary", use_container_width=True, key="ws_fb_view_json"):
                     st.session_state.ws_stage = "data_viewer"
                     st.rerun()
 
@@ -387,7 +387,7 @@ def render_web_scraping_persisted_tab():
 
         if st.session_state.ws_stage == "data_viewer":
             st.header("📋 JSON 數據檢視")
-        if st.button("返回進度頁", key="ws_fb_back_home_top"):
+            if st.button("返回進度頁", key="ws_fb_back_home_top"):
                 st.session_state.ws_stage = "smart_home"
                 st.rerun()
             col1, col2, col3 = st.columns(3)
@@ -397,7 +397,7 @@ def render_web_scraping_persisted_tab():
                 st.json(_load_ws_json(fb_logger, "author_articles.json", {}))
             with col3:
                 st.json(_load_ws_json(fb_logger, "editorial_articles.json", []))
-        if st.button("返回進度頁", key="ws_fb_back_home_bottom"):
+            if st.button("返回進度頁", key="ws_fb_back_home_bottom"):
                 st.session_state.ws_stage = "smart_home"
                 st.rerun()
             return
