@@ -19,13 +19,18 @@ from utils.wisers_utils import (
     robust_logout_request,
 )
 from utils.web_scraping_utils import scrape_hover_popovers
-from utils.international_news_utils import (
-    run_saved_search_task,
-    parse_metadata,
-    scrape_articles_by_news_id,
-    extract_news_id_from_html,
-    create_international_news_report,
-)
+from utils import international_news_utils as intl_utils
+
+parse_metadata = intl_utils.parse_metadata
+scrape_articles_by_news_id = intl_utils.scrape_articles_by_news_id
+extract_news_id_from_html = intl_utils.extract_news_id_from_html
+create_international_news_report = intl_utils.create_international_news_report
+
+if hasattr(intl_utils, "run_saved_search_task"):
+    run_saved_search_task = intl_utils.run_saved_search_task
+else:
+    def run_saved_search_task(**_kwargs):
+        raise RuntimeError("Missing run_saved_search_task in utils.international_news_utils. Please update that module.")
 from utils.intl_trim_utils import trim_docx
 from utils.firebase_logging import ensure_logger
 
