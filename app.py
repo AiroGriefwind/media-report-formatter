@@ -10,6 +10,7 @@ from tabs.document_formatting import render_document_formatting_tab
 from tabs.web_scraping import render_web_scraping_tab
 from tabs.web_scraping_persisted import render_web_scraping_persisted_tab
 from tabs.international_news import render_international_news_tab
+from tabs.saved_search_news import render_greater_china_keywords_tab, render_hong_kong_politics_news_tab
 
 def get_app_title():
     """Get the appropriate app title based on environment"""
@@ -41,10 +42,12 @@ def main():
     st.markdown("Choose between document formatting or web scraping functionality")
     
     # Create tabs
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📄 Document Formatting", 
         "🌐 Web Scraping & Reporting", 
         "🌍 International News",
+        "🇭🇰 香港政治新聞",
+        "🀄 大中華關鍵詞",
         "🧭 Web Scraping (Firebase)"
     ])
     
@@ -59,6 +62,12 @@ def main():
         render_international_news_tab()
 
     with tab4:
+        render_hong_kong_politics_news_tab()
+
+    with tab5:
+        render_greater_china_keywords_tab()
+
+    with tab6:
         render_web_scraping_persisted_tab()
 
 def _check_secrets_configuration():

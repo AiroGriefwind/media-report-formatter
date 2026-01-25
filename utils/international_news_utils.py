@@ -35,14 +35,16 @@ from .wisers_utils import (
 
 
 @retry_step
-def run_international_news_task(**kwargs):
-    """Search for international news articles with fallback mechanisms"""
+def run_saved_search_task(**kwargs):
+    """Search for articles using a saved search name."""
     driver = kwargs.get('driver')
     wait = kwargs.get('wait')
     st = kwargs.get('st_module')
     max_articles = kwargs.get('max_articles', 30)
-    # max_words = kwargs.get('max_words', 1000)
-    # min_words = kwargs.get('min_words', 200)
+    saved_search_name = kwargs.get('saved_search_name', '').strip()
+    if not saved_search_name:
+        return []
+
     try:
         # Try the saved search approach first
         dropdown_toggle = wait.until(
@@ -56,44 +58,44 @@ def run_international_news_task(**kwargs):
         wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#modal-saved-search-ws6")))
         time.sleep(3)
 
-        # Look for "國際新聞" in the saved searches
+        # Look for the saved search in the list
         try:
-            international_item = wait.until(
-                EC.element_to_be_clickable((By.XPATH, "//ul[@class='list-group']//h5[text()='國際新聞']/ancestor::li")))
-            international_item.click()
+            target_item = wait.until(
+                EC.element_to_be_clickable((By.XPATH, f"//ul[@class='list-group']//h5[text()='{saved_search_name}']/ancestor::li")))
+            target_item.click()
             time.sleep(3)
-            
+
             if st:
-                st.write("✅ Found '國際新聞' saved search")
-        
+                st.write(f"✅ Found '{saved_search_name}' saved search")
+
         except TimeoutException:
             if st:
-                st.warning("⚠️ '國際新聞' saved search not found. Checking available searches...")
-            
+                st.warning(f"⚠️ '{saved_search_name}' saved search not found. Checking available searches...")
+
             # List all available saved searches for debugging
             try:
                 search_items = driver.find_elements(By.XPATH, "//ul[@class='list-group']//h5")
                 available_searches = [item.text.strip() for item in search_items if item.text.strip()]
                 if st and available_searches:
                     st.info(f"Available saved searches: {', '.join(available_searches)}")
-            except:
+            except Exception:
                 pass
-            
+
             # Close modal and return empty result
             try:
                 close_btn = driver.find_element(By.CSS_SELECTOR, "#modal-saved-search-ws6 .close")
                 close_btn.click()
                 time.sleep(2)
-            except:
+            except Exception:
                 pass
-            
+
             return []
 
         # Click search button
         search_btn = None
         selectors = [(By.CSS_SELECTOR, "div.modal-footer .btn-default:last-child"),
                     (By.XPATH, "//div[@class='modal-footer']//button[text()='搜索']")]
-        
+
         for selector_type, selector in selectors:
             try:
                 search_btn = wait.until(EC.element_to_be_clickable((selector_type, selector)))
@@ -114,7 +116,7 @@ def run_international_news_task(**kwargs):
 
         # Wait for modal to close
         wait.until(EC.invisibility_of_element_located((By.CSS_SELECTOR, "#modal-saved-search-ws6")))
-        
+
         # Wait 15 seconds for search results to fully load
         if st:
             st.write("⏳ Waiting 15 seconds for search results to fully load...")
@@ -124,55 +126,63 @@ def run_international_news_task(**kwargs):
             # Scroll to load all content and wait for AJAX
             scroll_to_load_all_content(driver=driver, st_module=st)
             wait_for_ajax_complete(driver, timeout=10)
-            
+
             # Get all article links for scraping
             articles_data = []
-            
+
             for retry in range(3):
                 results = driver.find_elements(By.CSS_SELECTOR, 'div.list-group-item.no-excerpt')
                 if st:
-                    st.write(f"[International News Scrape] Attempt {retry+1}: {len(results)} items found.")
-                
+                    st.write(f"[Saved Search Scrape] Attempt {retry+1}: {len(results)} items found.")
+
                 # Limit to around 80-100 articles as requested
                 results = results[:max_articles]
-                
+
                 for i, result in enumerate(results):
                     try:
                         title_element = result.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a')
                         title = title_element.text.strip()
                         article_url = title_element.get_attribute('href')
-                        
+
                         # Get media name
                         try:
                             media_name_raw = result.find_element(By.CSS_SELECTOR, 'small a').text.strip()
                             mapped_name = next((v for k, v in MEDIA_NAME_MAPPINGS.items() if k in media_name_raw), media_name_raw)
-                        except:
+                        except Exception:
                             mapped_name = "Unknown"
-                        
+
                         articles_data.append({
                             'title': title,
                             'url': article_url,
                             'media': mapped_name,
                             'index': i
                         })
-                        
+
                     except Exception as e:
                         if st:
                             st.warning(f"Error extracting article {i}: {e}")
                         continue
-                
+
                 if len(articles_data) > 0:
                     break
                 time.sleep(2)
-            
+
             return articles_data
-        
+
         return []
-        
+
     except Exception as e:
         if st:
-            st.error(f"Error in international news search: {e}")
+            st.error(f"Error in saved search: {e}")
         return []
+
+
+@retry_step
+def run_international_news_task(**kwargs):
+    """Search for international news articles with fallback mechanisms"""
+    kwargs = dict(kwargs)
+    kwargs["saved_search_name"] = "國際新聞"
+    return run_saved_search_task(**kwargs)
 
 def should_scrape_article_based_on_metadata(metadata_text, min_words=200, max_words=1000):
     """Determine if article should be scraped based on metadata - filter out opinion pieces and articles outside word range"""
@@ -852,6 +862,7 @@ def create_international_news_report(**kwargs):
     articles_data = kwargs.get('articles_data')
     output_path = kwargs.get('output_path')
     st = kwargs.get('st_module')
+    report_title = kwargs.get('report_title') or '國際新聞摘要'
 
     # 防禦：如果沒有有效 articles_data，提早拋錯，避免 NoneType 迭代
     if not articles_data:
@@ -863,7 +874,7 @@ def create_international_news_report(**kwargs):
     setup_document_fonts(doc)
 
     # Add title
-    doc.add_heading('國際新聞摘要', level=1)
+    doc.add_heading(report_title, level=1)
     doc.add_paragraph()
 
     # Add date
