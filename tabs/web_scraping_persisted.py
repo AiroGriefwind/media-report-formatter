@@ -319,140 +319,144 @@ def _handle_scraping_process_with_firebase(
 
 def render_web_scraping_persisted_tab():
     """Render the web scraping tab with Firebase persistence"""
-    ensure_logger(st, run_context="tab_webscraping_firebase")
-    fb_logger = st.session_state.get("fb_logger") or ensure_logger(st, run_context="tab_webscraping_firebase")
+    try:
+        ensure_logger(st, run_context="tab_webscraping_firebase")
+        fb_logger = st.session_state.get("fb_logger") or ensure_logger(st, run_context="tab_webscraping_firebase")
 
-    st.header("Web Scraping (Firebase)")
-    st.markdown("Scrape editorials and specified authors, with progress restored from Firebase.")
+        st.header("Web Scraping (Firebase)")
+        st.markdown("Scrape editorials and specified authors, with progress restored from Firebase.")
 
-    ensure_ws_session_state(fb_logger)
+        ensure_ws_session_state(fb_logger)
 
-    if st.session_state.get("ws_need_rerun", False):
-        st.session_state.ws_need_rerun = False
-        st.rerun()
-
-    if st.session_state.ws_stage == "smart_home":
-        st.header("🧭 進度恢復")
-        st.info(f"📁 Firebase: `{WS_FOLDER}/{TODAY}/` | {datetime.now().strftime('%H:%M')}")
-
-        progress = check_ws_progress(fb_logger)
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("👤 作者社評", f"{progress['authors_found']} / {progress['authors_total']} 篇")
-        with col2:
-            st.metric("📰 報章社評", f"{progress['editorials_total']} 篇")
-        with col3:
-            st.metric("📄 報告檔案", "✅" if progress["has_report"] else "❌")
-
-        st.divider()
-
-        if progress["has_report"]:
-            st.success("🎉 已完成資料與報告，可直接下載")
-            if st.button("📥 進入下載頁", type="primary", use_container_width=True):
-                restore_ws_progress("finished")
-        elif progress["has_authors_data"] or progress["has_editorials_data"]:
-            st.warning("⏳ 已有爬取資料，尚未生成/恢復報告")
-            if st.button("♻️ 恢復資料並生成報告", type="primary", use_container_width=True):
-                restore_ws_progress("finished")
-        else:
-            st.success("🆕 今日尚無資料，開始新的爬取")
-            if st.button("🚀 開始爬取", type="primary", use_container_width=True):
-                st.session_state.ws_stage = "scraping"
-                st.rerun()
-
-        st.divider()
-
-        col_a, col_b = st.columns(2)
-        with col_a:
-            if st.button("🔄 忽略進度重來", type="secondary", use_container_width=True):
-                for key in [
-                    "ws_stage",
-                    "ws_authors_list",
-                    "ws_author_articles",
-                    "ws_editorial_data",
-                    "ws_report_docx",
-                ]:
-                    if key in st.session_state:
-                        del st.session_state[key]
-                st.session_state.ws_stage = "scraping"
-                st.rerun()
-        with col_b:
-            if st.button("📋 查看 JSON 數據", type="secondary", use_container_width=True):
-                st.session_state.ws_stage = "data_viewer"
-                st.rerun()
-
-        st.stop()
-
-    if st.session_state.ws_stage == "data_viewer":
-        st.header("📋 JSON 數據檢視")
-        if st.button("返回進度頁"):
-            st.session_state.ws_stage = "smart_home"
+        if st.session_state.get("ws_need_rerun", False):
+            st.session_state.ws_need_rerun = False
             st.rerun()
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.json(_load_ws_json(fb_logger, "authors_list.json", []))
-        with col2:
-            st.json(_load_ws_json(fb_logger, "author_articles.json", {}))
-        with col3:
-            st.json(_load_ws_json(fb_logger, "editorial_articles.json", []))
-        if st.button("返回進度頁"):
-            st.session_state.ws_stage = "smart_home"
-            st.rerun()
-        st.stop()
 
-    if st.session_state.ws_stage == "scraping":
-        st.subheader("Web Scraping and Report Generation")
-        st.markdown("Scrape articles by specified authors and newspaper editorials, then generate a Word report.")
+        if st.session_state.ws_stage == "smart_home":
+            st.header("🧭 進度恢復")
+            st.info(f"📁 Firebase: `{WS_FOLDER}/{TODAY}/` | {datetime.now().strftime('%H:%M')}")
 
-        with st.expander("⚙️ Scraping Configuration", expanded=True):
-            col1, col2 = st.columns(2)
+            progress = check_ws_progress(fb_logger)
+
+            col1, col2, col3 = st.columns(3)
             with col1:
-                group_name, username, password, _bucket = _get_credentials()
+                st.metric("👤 作者社評", f"{progress['authors_found']} / {progress['authors_total']} 篇")
             with col2:
-                api_key = _get_api_key()
+                st.metric("📰 報章社評", f"{progress['editorials_total']} 篇")
+            with col3:
+                st.metric("📄 報告檔案", "✅" if progress["has_report"] else "❌")
 
-        authors_input = st.text_area(
-            "Authors to Search (one per line)",
-            value="李先知\n余錦賢\n傅流螢\n黄锦辉",
-            help="Enter one author name per line. The script will search for the latest article from each.",
-        )
+            st.divider()
 
-        if st.button("🚀 Start Scraping and Generate Report", type="primary"):
-            _handle_scraping_process_with_firebase(
-                group_name,
-                username,
-                password,
-                api_key,
-                authors_input,
-                run_headless=True,
-                keep_browser_open=False,
+            if progress["has_report"]:
+                st.success("🎉 已完成資料與報告，可直接下載")
+                if st.button("📥 進入下載頁", type="primary", use_container_width=True):
+                    restore_ws_progress("finished")
+            elif progress["has_authors_data"] or progress["has_editorials_data"]:
+                st.warning("⏳ 已有爬取資料，尚未生成/恢復報告")
+                if st.button("♻️ 恢復資料並生成報告", type="primary", use_container_width=True):
+                    restore_ws_progress("finished")
+            else:
+                st.success("🆕 今日尚無資料，開始新的爬取")
+                if st.button("🚀 開始爬取", type="primary", use_container_width=True):
+                    st.session_state.ws_stage = "scraping"
+                    st.rerun()
+
+            st.divider()
+
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if st.button("🔄 忽略進度重來", type="secondary", use_container_width=True):
+                    for key in [
+                        "ws_stage",
+                        "ws_authors_list",
+                        "ws_author_articles",
+                        "ws_editorial_data",
+                        "ws_report_docx",
+                    ]:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    st.session_state.ws_stage = "scraping"
+                    st.rerun()
+            with col_b:
+                if st.button("📋 查看 JSON 數據", type="secondary", use_container_width=True):
+                    st.session_state.ws_stage = "data_viewer"
+                    st.rerun()
+
+            st.stop()
+
+        if st.session_state.ws_stage == "data_viewer":
+            st.header("📋 JSON 數據檢視")
+            if st.button("返回進度頁"):
+                st.session_state.ws_stage = "smart_home"
+                st.rerun()
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.json(_load_ws_json(fb_logger, "authors_list.json", []))
+            with col2:
+                st.json(_load_ws_json(fb_logger, "author_articles.json", {}))
+            with col3:
+                st.json(_load_ws_json(fb_logger, "editorial_articles.json", []))
+            if st.button("返回進度頁"):
+                st.session_state.ws_stage = "smart_home"
+                st.rerun()
+            st.stop()
+
+        if st.session_state.ws_stage == "scraping":
+            st.subheader("Web Scraping and Report Generation")
+            st.markdown("Scrape articles by specified authors and newspaper editorials, then generate a Word report.")
+
+            with st.expander("⚙️ Scraping Configuration", expanded=True):
+                col1, col2 = st.columns(2)
+                with col1:
+                    group_name, username, password, _bucket = _get_credentials()
+                with col2:
+                    api_key = _get_api_key()
+
+            authors_input = st.text_area(
+                "Authors to Search (one per line)",
+                value="李先知\n余錦賢\n傅流螢\n黄锦辉",
+                help="Enter one author name per line. The script will search for the latest article from each.",
             )
 
-    if st.session_state.ws_stage == "finished":
-        st.header("🎉 任務完成，可下載報告")
-        _ensure_ws_report_docx(fb_logger)
+            if st.button("🚀 Start Scraping and Generate Report", type="primary"):
+                _handle_scraping_process_with_firebase(
+                    group_name,
+                    username,
+                    password,
+                    api_key,
+                    authors_input,
+                    run_headless=True,
+                    keep_browser_open=False,
+                )
 
-        st.download_button(
-            label="📥 Download Combined Report",
-            data=st.session_state.ws_report_docx,
-            file_name=f"香港社評報告_{TODAY}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            type="primary",
-            use_container_width=True,
-        )
+        if st.session_state.ws_stage == "finished":
+            st.header("🎉 任務完成，可下載報告")
+            _ensure_ws_report_docx(fb_logger)
 
-        st.subheader("📊 Scraped Content Summary")
-        author_articles = st.session_state.get("ws_author_articles", {})
-        authors_list = st.session_state.get("ws_authors_list", []) or list(author_articles.keys())
-        for author in authors_list:
-            data = author_articles.get(author)
-            if data and (data.get("content") or data.get("title")) and data["title"] != "無法找到文章":
-                st.write(f"**{author}**: Article found")
-            else:
-                st.write(f"**{author}**: No article found")
-        st.write(f"**Editorials**: Found {len(st.session_state.get('ws_editorial_data', []))} total editorial articles.")
+            st.download_button(
+                label="📥 Download Combined Report",
+                data=st.session_state.ws_report_docx,
+                file_name=f"香港社評報告_{TODAY}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary",
+                use_container_width=True,
+            )
 
-        if st.button("🔄 開始新任務", type="secondary"):
-            st.session_state.ws_stage = "smart_home"
-            st.rerun()
+            st.subheader("📊 Scraped Content Summary")
+            author_articles = st.session_state.get("ws_author_articles", {})
+            authors_list = st.session_state.get("ws_authors_list", []) or list(author_articles.keys())
+            for author in authors_list:
+                data = author_articles.get(author)
+                if data and (data.get("content") or data.get("title")) and data["title"] != "無法找到文章":
+                    st.write(f"**{author}**: Article found")
+                else:
+                    st.write(f"**{author}**: No article found")
+            st.write(f"**Editorials**: Found {len(st.session_state.get('ws_editorial_data', []))} total editorial articles.")
+
+            if st.button("🔄 開始新任務", type="secondary"):
+                st.session_state.ws_stage = "smart_home"
+                st.rerun()
+    except Exception as e:
+        st.error(f"❌ Web Scraping (Firebase) 渲染失败: {e}")
+        st.code(traceback.format_exc())
