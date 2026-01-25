@@ -562,11 +562,19 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                     perform_login(driver=driver, wait=wait, group_name=group_name, username=username, password=password, api_key=api_key, st_module=st)
                     switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
 
-                    run_saved_search_task(driver=driver, wait=wait, st_module=st, max_articles=max_articles, saved_search_name=saved_search_name)
+                    _, search_meta = run_saved_search_task(
+                        driver=driver,
+                        wait=wait,
+                        st_module=st,
+                        max_articles=max_articles,
+                        saved_search_name=saved_search_name,
+                        return_meta=True,
+                    )
 
                     rawlist = scrape_hover_popovers(driver=driver, wait=wait, st_module=st, max_articles=max_articles) or []
+                    raw_count = len(rawlist)
                     if st:
-                        st.info(f"✅ 抓取了 {len(rawlist)} 篇懸停預覽")
+                        st.info(f"✅ 抓取了 {raw_count} 篇懸停預覽")
 
                     st.info("暫時登出以釋放 Session...")
                     try:
@@ -590,8 +598,20 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                             filtered_rawlist.append(item)
 
                     rawlist = filtered_rawlist
+                    filtered_count = len(rawlist)
                     if st:
-                        st.info(f"📊 字數過濾後剩餘: {len(rawlist)} 篇")
+                        st.info(f"📊 字數過濾後剩餘: {filtered_count} 篇")
+
+                    if not search_meta.get("saved_search_found", True):
+                        st.error(f"❌ 未找到已保存搜索：{saved_search_name}")
+                        return
+
+                    if search_meta.get("no_results", False):
+                        st.warning("⚠️ 已保存搜索有执行，但搜索结果为 0 篇。")
+                    elif raw_count == 0:
+                        st.warning("⚠️ 搜索有结果，但懸浮爬取為 0 篇。")
+                    elif raw_count > 0 and filtered_count == 0:
+                        st.warning("⚠️ 搜索有結果，但全部被字數過濾條件篩掉。")
 
                     preview_list = []
                     for i, item in enumerate(rawlist):

@@ -42,8 +42,14 @@ def run_saved_search_task(**kwargs):
     st = kwargs.get('st_module')
     max_articles = kwargs.get('max_articles', 30)
     saved_search_name = kwargs.get('saved_search_name', '').strip()
+    return_meta = bool(kwargs.get('return_meta', False))
     if not saved_search_name:
-        return []
+        return ([], {"saved_search_found": False, "no_results": True}) if return_meta else []
+
+    meta = {
+        "saved_search_found": True,
+        "no_results": False,
+    }
 
     try:
         # Try the saved search approach first
@@ -89,7 +95,9 @@ def run_saved_search_task(**kwargs):
             except Exception:
                 pass
 
-            return []
+            meta["saved_search_found"] = False
+            meta["no_results"] = True
+            return ([], meta) if return_meta else []
 
         # Click search button
         search_btn = None
@@ -167,14 +175,16 @@ def run_saved_search_task(**kwargs):
                     break
                 time.sleep(2)
 
-            return articles_data
+            return (articles_data, meta) if return_meta else articles_data
 
-        return []
+        meta["no_results"] = True
+        return ([], meta) if return_meta else []
 
     except Exception as e:
         if st:
             st.error(f"Error in saved search: {e}")
-        return []
+        meta["no_results"] = True
+        return ([], meta) if return_meta else []
 
 
 @retry_step
