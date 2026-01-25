@@ -19,6 +19,10 @@ def _today_hkt_str() -> str:
     # Always compute "today" at call time to avoid stale date after midnight
     return dt.datetime.now(HKT).strftime("%Y%m%d")
 
+def _date_folder(base_folder: str) -> str:
+    safe_base = (base_folder or "international_news").strip().strip("/")
+    return f"{safe_base}/{_today_hkt_str()}"
+
 def _get_or_create_session_id(st):
     key = "_session_id"
     if key not in st.session_state:
@@ -100,9 +104,9 @@ class FirebaseLogger:
         self.local_log_events.append(payload)
         # DO NOT: self.events_ref.push(payload)
 
-    def save_json_to_date_folder(self, data, filename):
+    def save_json_to_date_folder(self, data, filename, base_folder="international_news"):
         """Save JSON under date-based folder."""
-        folderpath = f"international_news/{_today_hkt_str()}"
+        folderpath = _date_folder(base_folder)
         remotepath = f"{folderpath}/{filename}"
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
@@ -113,9 +117,9 @@ class FirebaseLogger:
         os.unlink(tmppath)
         return gsurl
 
-    def load_json_from_date_folder(self, filename, default=None):
+    def load_json_from_date_folder(self, filename, default=None, base_folder="international_news"):
         """Load JSON from date-based folder."""
-        folderpath = f"international_news/{_today_hkt_str()}"
+        folderpath = _date_folder(base_folder)
         remotepath = f"{folderpath}/{filename}"
 
         try:
@@ -132,12 +136,12 @@ class FirebaseLogger:
         blob.upload_from_filename(local_fp)
         return f"gs://{self.bucket.name}/{remote_path}"
 
-    def save_final_docx_to_date_folder(self, articlesdata, filename):
+    def save_final_docx_to_date_folder(self, articlesdata, filename, base_folder="international_news"):
         """Save DOCX under date-based folder."""
         import tempfile
         from utils.international_news_utils import create_international_news_report
 
-        folderpath = f"international_news/{_today_hkt_str()}"
+        folderpath = _date_folder(base_folder)
         remotepath = f"{folderpath}/{filename}"
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
@@ -152,9 +156,9 @@ class FirebaseLogger:
         os.unlink(tmppath)
         return gsurl
 
-    def save_final_docx_bytes_to_date_folder(self, docxbytes: bytes, filename: str):
+    def save_final_docx_bytes_to_date_folder(self, docxbytes: bytes, filename: str, base_folder="international_news"):
         """Save DOCX bytes under date-based folder."""
-        folderpath = f"international_news/{_today_hkt_str()}"
+        folderpath = _date_folder(base_folder)
         remotepath = f"{folderpath}/{filename}"
 
         try:
@@ -168,9 +172,9 @@ class FirebaseLogger:
             return None
 
 
-    def load_final_docx_from_date_folder(self, filename):
+    def load_final_docx_from_date_folder(self, filename, base_folder="international_news"):
         """Load DOCX bytes from date-based folder."""
-        folderpath = f"international_news/{_today_hkt_str()}"
+        folderpath = _date_folder(base_folder)
         remotepath = f"{folderpath}/{filename}"
 
         try:

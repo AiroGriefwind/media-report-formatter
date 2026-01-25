@@ -8,6 +8,7 @@ patch_streamlit_logging(st)  # mirrors st.* to Firebase
 # Import tab render functions
 from tabs.document_formatting import render_document_formatting_tab
 from tabs.web_scraping import render_web_scraping_tab
+from tabs.web_scraping_persisted import render_web_scraping_persisted_tab
 from tabs.international_news import render_international_news_tab
 
 def get_app_title():
@@ -40,10 +41,11 @@ def main():
     st.markdown("Choose between document formatting or web scraping functionality")
     
     # Create tabs
-    tab1, tab2, tab3 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "📄 Document Formatting", 
         "🌐 Web Scraping & Reporting", 
-        "🌍 International News"
+        "🌍 International News",
+        "🧭 Web Scraping (Firebase)"
     ])
     
     # Render each tab
@@ -55,6 +57,9 @@ def main():
     
     with tab3:
         render_international_news_tab()
+
+    with tab4:
+        render_web_scraping_persisted_tab()
 
 def _check_secrets_configuration():
     """Check if secrets are configured and show appropriate warnings"""
