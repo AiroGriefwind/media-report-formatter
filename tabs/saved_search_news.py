@@ -49,7 +49,7 @@ NEWS_TABS = {
     "hong_kong_politics": {
         "tab_title": "香港政治新聞",
         "header": "香港政治新聞",
-        "saved_search_name": "香港政治新聞",
+        "saved_search_name": "香港政治要闻",
         "base_folder": "local_news",
         "report_title": "本地新聞摘要",
         "category_label": "本地新聞",
