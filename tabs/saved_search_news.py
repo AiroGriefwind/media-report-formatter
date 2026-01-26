@@ -755,17 +755,16 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                         sunday_items = [a for a in final_list if a.get("day_tag") == "周日"]
                         full_articles_data = []
 
+                        # 先進入搜索結果頁，再處理日期切換
+                        run_saved_search_task(
+                            driver=driver,
+                            wait=wait,
+                            st_module=st,
+                            max_articles=per_period_max,
+                            saved_search_name=saved_search_name,
+                        )
+
                         if today_items:
-                            set_date_range_period(
-                                driver=driver, wait=wait, st_module=st, period_name="today"
-                            )
-                            run_saved_search_task(
-                                driver=driver,
-                                wait=wait,
-                                st_module=st,
-                                max_articles=per_period_max,
-                                saved_search_name=saved_search_name,
-                            )
                             full_articles_data.extend(
                                 scrape_articles_by_news_id(driver, wait, today_items, st_module=st)
                             )
