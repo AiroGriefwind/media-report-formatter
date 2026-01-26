@@ -879,6 +879,8 @@ def _handle_international_news_logic(
                 return
 
             with st.spinner(f"正在爬取 {len(final_list)} 篇文章的全文內容..."):
+                driver = None
+                did_logout = False
                 try:
                     driver = setup_webdriver(headless=run_headless_intl, st_module=st)
                     wait = WebDriverWait(driver, 20)
@@ -888,18 +890,18 @@ def _handle_international_news_logic(
                     
                     # ✅ 重新搜索以显示结果页（但不再依赖索引）
                     is_monday = is_hkt_monday()
+                    per_period_max = max(1, max_articles_intl // 2) if is_monday else max_articles_intl
                     if is_monday:
                         today_items = [a for a in final_list if a.get("day_tag") != "周日"]
                         sunday_items = [a for a in final_list if a.get("day_tag") == "周日"]
                         full_articles_data = []
 
+                        # 先進入搜索結果頁，再處理日期切換
+                        run_international_news_task(
+                            driver=driver, wait=wait, st_module=st, max_articles=per_period_max
+                        )
+
                         if today_items:
-                            set_date_range_period(
-                                driver=driver, wait=wait, st_module=st, period_name="today"
-                            )
-                            run_international_news_task(
-                                driver=driver, wait=wait, st_module=st, max_articles=per_period_max
-                            )
                             full_articles_data.extend(
                                 scrape_articles_by_news_id(driver, wait, today_items, st_module=st)
                             )
@@ -949,6 +951,7 @@ def _handle_international_news_logic(
 
                     st.session_state.intl_stage = "finished"
                     robust_logout_request(driver, st)
+                    did_logout = True
                     driver.quit()
                     st.rerun()
 
@@ -958,6 +961,17 @@ def _handle_international_news_logic(
                     st.error(f"爬取失敗: {e}")
                     if st.button("重試"):
                         st.rerun()
+                finally:
+                    if driver:
+                        if not did_logout:
+                            try:
+                                robust_logout_request(driver, st)
+                            except Exception:
+                                pass
+                        try:
+                            driver.quit()
+                        except Exception:
+                            pass
 
         # === Stage 4: Download（完全替換） ===
         if st.session_state.intl_stage == "finished":

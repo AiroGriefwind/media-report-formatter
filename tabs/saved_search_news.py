@@ -743,6 +743,8 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                 return
 
             with st.spinner(f"正在爬取 {len(final_list)} 篇文章的全文內容..."):
+                driver = None
+                did_logout = False
                 try:
                     driver = setup_webdriver(headless=run_headless, st_module=st)
                     wait = WebDriverWait(driver, 20)
@@ -750,6 +752,7 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                     switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
 
                     is_monday = is_hkt_monday()
+                    per_period_max = max(1, max_articles // 2) if is_monday else max_articles
                     if is_monday:
                         today_items = [a for a in final_list if a.get("day_tag") != "周日"]
                         sunday_items = [a for a in final_list if a.get("day_tag") == "周日"]
@@ -816,6 +819,7 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
 
                     st.session_state[stage_key] = "finished"
                     robust_logout_request(driver, st)
+                    did_logout = True
                     driver.quit()
                     st.rerun()
 
@@ -823,6 +827,17 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                     st.error(f"爬取失敗: {e}")
                     if st.button("重試", key=f"{prefix}-final-retry"):
                         st.rerun()
+                finally:
+                    if driver:
+                        if not did_logout:
+                            try:
+                                robust_logout_request(driver, st)
+                            except Exception:
+                                pass
+                        try:
+                            driver.quit()
+                        except Exception:
+                            pass
 
         if st.session_state[stage_key] == "finished":
             st.header("🎉 任務全部完成！")
