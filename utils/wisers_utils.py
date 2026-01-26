@@ -37,6 +37,8 @@ def retry_step(func):
     def wrapper(*args, **kwargs):
         st = kwargs.get('st_module')
         driver = kwargs.get('driver')
+        logger = kwargs.get("logger")
+        screenshot_dir = kwargs.get("screenshot_dir") or os.getenv("WISERS_SCREENSHOT_DIR") or os.path.join(".", "artifacts", "screenshots")
         retry_limit = 3
         
         for trial in range(1, retry_limit + 1):
@@ -48,33 +50,89 @@ def retry_step(func):
             except Exception as e:
                 if st:
                     st.warning(f"⚠️ Step {func.__name__} failed on attempt {trial}: {e}")
+                if logger and hasattr(logger, "warn"):
+                    try:
+                        logger.warn(f"Step {func.__name__} failed on attempt {trial}", error=str(e))
+                    except Exception:
+                        pass
                 
                 # Screenshot on failure
-                if driver and st:
+                if driver:
                     try:
                         img_bytes = driver.get_screenshot_as_png()
-                        st.image(img_bytes, caption=f"Screencap after failure in {func.__name__}, attempt {trial}")
-                        st.download_button(
-                            label=f"Download {func.__name__}_attempt{trial}_screenshot.png",
-                            data=img_bytes,
-                            file_name=f"{func.__name__}_attempt{trial}_screenshot.png",
-                            mime="image/png"
-                        )
-                        fb = get_logger(st)
-                        if fb:
-                            log_dir = f"./logs/{fb.run_id}/"
-                            fb.upload_scrcap_to_firebase(img_bytes, log_dir, name_hint=f"{func.__name__}_attempt{trial}")
+
+                        # Streamlit path (existing behavior)
+                        if st:
+                            st.image(img_bytes, caption=f"Screencap after failure in {func.__name__}, attempt {trial}")
+                            st.download_button(
+                                label=f"Download {func.__name__}_attempt{trial}_screenshot.png",
+                                data=img_bytes,
+                                file_name=f"{func.__name__}_attempt{trial}_screenshot.png",
+                                mime="image/png"
+                            )
+
+                        # CLI/local path: always save to disk
+                        os.makedirs(screenshot_dir, exist_ok=True)
+                        ts = time.strftime("%Y%m%d_%H%M%S")
+                        fname = f"{ts}_{func.__name__}_attempt{trial}.png"
+                        local_fp = os.path.join(screenshot_dir, fname)
+                        with open(local_fp, "wb") as f:
+                            f.write(img_bytes)
+
+                        # Also save URL + tiny context for debugging
+                        try:
+                            url = driver.current_url
+                        except Exception:
+                            url = ""
+                        meta_fp = local_fp.replace(".png", ".txt")
+                        try:
+                            with open(meta_fp, "w", encoding="utf-8") as f:
+                                f.write(f"func={func.__name__}\n")
+                                f.write(f"attempt={trial}\n")
+                                f.write(f"url={url}\n")
+                                f.write(f"error={repr(e)}\n")
+                        except Exception:
+                            pass
+
+                        if st:
+                            fb = get_logger(st)
+                        else:
+                            fb = None
+
+                        # Upload to Firebase if logger is available (CLI logger or Streamlit logger)
+                        up_logger = logger or fb
+                        if up_logger and hasattr(up_logger, "upload_file_to_firebase"):
+                            try:
+                                # Prefer run-scoped folder if available
+                                session_id = getattr(up_logger, "session_id", "cli")
+                                run_id = getattr(up_logger, "run_id", "run")
+                                remote_path = f"runs/{session_id}/{run_id}/screens/{fname}"
+                                gs_url = up_logger.upload_file_to_firebase(local_fp, remote_path)
+                                if logger and hasattr(logger, "info"):
+                                    logger.info("Uploaded failure screenshot", gs_url=gs_url, local_fp=local_fp)
+                            except Exception:
+                                pass
 
 
                     except Exception as screencap_err:
                         if st:
                             st.warning(f"Screencap failed: {screencap_err}")
+                        if logger and hasattr(logger, "warn"):
+                            try:
+                                logger.warn("Screencap failed", error=str(screencap_err))
+                            except Exception:
+                                pass
                 
                 time.sleep(2)
                 
                 if trial == retry_limit:
                     if st:
                         st.error(f"❌ Step {func.__name__} failed after {retry_limit} attempts.")
+                    if logger and hasattr(logger, "error"):
+                        try:
+                            logger.error(f"Step {func.__name__} failed after {retry_limit} attempts.", error=str(e))
+                        except Exception:
+                            pass
                     
                     # Robust logout on final failure
                     try:
@@ -85,6 +143,11 @@ def retry_step(func):
                     except Exception as logout_err:
                         if st:
                             st.warning(f"Robust logout request failed: {logout_err}")
+                        if logger and hasattr(logger, "warn"):
+                            try:
+                                logger.warn("Robust logout request failed", error=str(logout_err))
+                            except Exception:
+                                pass
                     
                     raise Exception(f"Step {func.__name__} failed after {retry_limit} attempts.")
     return wrapper

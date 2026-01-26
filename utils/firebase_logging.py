@@ -214,6 +214,186 @@ class FirebaseLogger:
              })
 
 
+class FirebaseLoggerCLI:
+    """
+    A minimal Firebase logger for non-Streamlit contexts (e.g. cron/CLI scripts).
+
+    It focuses on Firebase Storage (gs://) uploads/reads under date folders and keeps
+    an in-memory event list for optional local export.
+
+    Environment variables supported:
+      - FIREBASE_SERVICE_ACCOUNT_JSON: JSON string of a service account
+      - FIREBASE_SERVICE_ACCOUNT_FILE: path to a service account JSON file
+      - GOOGLE_APPLICATION_CREDENTIALS: standard ADC path (fallback)
+      - FIREBASE_DATABASE_URL: optional (only needed if you want RTDB logging)
+      - FIREBASE_STORAGE_BUCKET: optional; defaults to "<project_id>.appspot.com" when available
+    """
+
+    def __init__(self, run_context=None, session_id=None):
+        self.st = None
+        self.bucket = None
+        self.events_ref = None
+        self.screens_ref = None
+        self.run_ref = None
+        self.session_id = session_id or uuid.uuid4().hex
+
+        now_hkt = dt.datetime.now(HKT)
+        self.run_id = now_hkt.strftime("%Y%m%dT%H%M%S") + "_" + uuid.uuid4().hex[:6]
+        self.local_log_events = []
+        self._init_firebase_from_env(run_context=run_context)
+
+    def _init_firebase_from_env(self, run_context=None):
+        svc_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+        svc_file = os.getenv("FIREBASE_SERVICE_ACCOUNT_FILE")
+        db_url = os.getenv("FIREBASE_DATABASE_URL")
+
+        # Prefer explicit bucket; otherwise infer from project_id when possible.
+        bucket = os.getenv("FIREBASE_STORAGE_BUCKET")
+
+        # Credentials
+        cred = None
+        project_id = None
+        if svc_json:
+            try:
+                svc_dict = json.loads(svc_json)
+            except Exception as e:
+                raise RuntimeError("Invalid FIREBASE_SERVICE_ACCOUNT_JSON (must be valid JSON)") from e
+            project_id = svc_dict.get("project_id")
+            cred = credentials.Certificate(svc_dict)
+        elif svc_file:
+            if not os.path.exists(svc_file):
+                raise RuntimeError(f"FIREBASE_SERVICE_ACCOUNT_FILE not found: {svc_file}")
+            try:
+                with open(svc_file, "r", encoding="utf-8") as f:
+                    svc_dict = json.load(f)
+                project_id = svc_dict.get("project_id")
+            except Exception:
+                # If reading fails, still try Certificate(file) directly
+                svc_dict = None
+            cred = credentials.Certificate(svc_file)
+        else:
+            # Fallback to Application Default Credentials if configured
+            cred = credentials.ApplicationDefault()
+
+        if not bucket and project_id:
+            bucket = f"{project_id}.appspot.com"
+
+        if not bucket:
+            raise RuntimeError(
+                "Firebase Storage bucket not configured. Set FIREBASE_STORAGE_BUCKET or provide a "
+                "service account with project_id via FIREBASE_SERVICE_ACCOUNT_JSON/FIREBASE_SERVICE_ACCOUNT_FILE."
+            )
+
+        options = {"storageBucket": bucket}
+        if db_url:
+            options["databaseURL"] = db_url
+
+        if not firebase_admin._apps:
+            app = firebase_admin.initialize_app(cred, options)
+        else:
+            app = firebase_admin.get_app()
+
+        self.bucket = storage.bucket(app=app)
+
+        # Optional RTDB run logging (only if db_url is configured and app was initialized with it)
+        if db_url:
+            try:
+                self.db = db.reference(f"logs/cli/{self.session_id}")
+                self.run_ref = self.db.child("runs").child(self.run_id)
+                self.events_ref = self.run_ref.child("events")
+                self.screens_ref = self.run_ref.child("screens")
+                meta = {
+                    "started_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+                }
+                if run_context:
+                    meta["context"] = run_context
+                self.run_ref.update(meta)
+            except Exception:
+                # Storage still works; ignore RTDB failures.
+                self.db = None
+                self.run_ref = None
+                self.events_ref = None
+                self.screens_ref = None
+
+    def info(self, msg, **extra):
+        self._event("INFO", msg, extra)
+
+    def warn(self, msg, **extra):
+        self._event("WARN", msg, extra)
+
+    def error(self, msg, **extra):
+        self._event("ERROR", msg, extra)
+
+    def _event(self, level, message, extra=None):
+        payload = {
+            "ts": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+            "level": level,
+            "message": message,
+        }
+        if extra:
+            payload.update(extra)
+        self.local_log_events.append(payload)
+        if self.events_ref:
+            try:
+                self.events_ref.push(payload)
+            except Exception:
+                pass
+
+    def save_json_to_date_folder(self, data, filename):
+        if not self.bucket:
+            raise RuntimeError("Firebase Storage is not initialized (bucket is None).")
+        folderpath = f"international_news/{_today_hkt_str()}"
+        remotepath = f"{folderpath}/{filename}"
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as tmp:
+            json.dump(data, tmp, ensure_ascii=False, indent=2)
+            tmppath = tmp.name
+
+        gsurl = self.upload_file_to_firebase(tmppath, remotepath)
+        os.unlink(tmppath)
+        return gsurl
+
+    def load_json_from_date_folder(self, filename, default=None):
+        if not self.bucket:
+            return default
+        folderpath = f"international_news/{_today_hkt_str()}"
+        remotepath = f"{folderpath}/{filename}"
+
+        try:
+            blob = self.bucket.blob(remotepath)
+            if blob.exists():
+                content = blob.download_as_string().decode("utf-8")
+                return json.loads(content)
+        except Exception:
+            pass
+        return default
+
+    def upload_file_to_firebase(self, local_fp, remote_path):
+        if not self.bucket:
+            raise RuntimeError("Firebase Storage is not initialized (bucket is None).")
+        blob = self.bucket.blob(remote_path)
+        blob.upload_from_filename(local_fp)
+        return f"gs://{self.bucket.name}/{remote_path}"
+
+    def export_log_json(self, log_dir):
+        os.makedirs(log_dir, exist_ok=True)
+        fp = os.path.join(log_dir, f"{self.run_id}_logs.json")
+        with open(fp, "w", encoding="utf-8") as f:
+            json.dump(self.local_log_events, f, ensure_ascii=False, indent=2)
+        return fp
+
+    def end_run(self, status="completed", summary=None):
+        if self.run_ref:
+            try:
+                self.run_ref.update({
+                    "ended_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "status": status,
+                    "summary": summary or {},
+                })
+            except Exception:
+                pass
+
+
 def ensure_logger(st, run_context=None):
     # Prefer a per-session singleton stored in session_state
     if "fb_logger" not in st.session_state:
@@ -221,6 +401,13 @@ def ensure_logger(st, run_context=None):
     elif run_context and st.session_state["fb_logger"].run_ref:
         st.session_state["fb_logger"].run_ref.update({"context": run_context})
     return st.session_state["fb_logger"]
+
+
+def create_cli_logger(run_context=None) -> FirebaseLoggerCLI:
+    """
+    Create a Firebase logger for CLI/cron usage (no Streamlit dependency).
+    """
+    return FirebaseLoggerCLI(run_context=run_context)
 
 
 def get_logger(st):

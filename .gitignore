@@ -5,6 +5,14 @@
 .env
 *.env
 
+# Local secrets (DO NOT COMMIT)
+secrets.local.toml
+*.local.toml
+
+# Screenshots
+screenshots/
+
+
 # Temporary files
 captcha.png
 temp_*.docx
@@ -13,3 +21,6 @@ temp_*.docx
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Example secrets file
+secrets.local.toml.example

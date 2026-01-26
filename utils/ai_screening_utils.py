@@ -2,11 +2,12 @@ import json
 import time
 import re
 from openai import OpenAI
-import streamlit as st
+import os
 
-# 硬編碼配置
-KIMI_API_KEY = "sk-Chcr24Sj5v69WmlQ614vxqzwkn13vA3czyGkaX4J5wspFZkA"
-KIMI_BASE_URL = "https://api.moonshot.cn/v1"
+# 配置：优先从环境变量读取，便于在 CLI/VM 上部署
+# 兼容：若未设置环境变量，则回退到原默认值（不建议在生产继续使用硬编码 Key）
+KIMI_API_KEY = os.getenv("KIMI_API_KEY") or os.getenv("MOONSHOT_API_KEY") or "sk-Chcr24Sj5v69WmlQ614vxqzwkn13vA3czyGkaX4J5wspFZkA"
+KIMI_BASE_URL = os.getenv("KIMI_BASE_URL") or os.getenv("MOONSHOT_BASE_URL") or "https://api.moonshot.cn/v1"
 
 # 地點排序權重
 LOCATION_ORDER = {
