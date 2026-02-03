@@ -634,8 +634,11 @@ def wait_for_search_results(**kwargs):
     
     for selector in result_selectors:
         if driver.find_elements(By.CSS_SELECTOR, selector):
-            if st_module:
-                st_module.write("✅ Search results found.")
+            # Guard: if tabs are all zero, treat as no results
+            if _confirm_no_results():
+                _log_warn("ℹ️ Detected results markup but tab counters are all 0. Verifying...")
+                break
+            _log_info("✅ Search results found.")
             return True
     
     # If no results yet, allow extra time for loading and double-check empty state

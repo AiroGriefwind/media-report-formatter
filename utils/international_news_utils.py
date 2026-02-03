@@ -183,7 +183,10 @@ def run_saved_search_task(**kwargs):
 
                 if len(articles_data) > 0:
                     break
-                time.sleep(2)
+                if st:
+                    st.write("⏳ 结果为 0，等待加载后重试...")
+                wait_for_ajax_complete(driver, timeout=8)
+                time.sleep(4)
 
             return (articles_data, meta) if return_meta else articles_data
 
