@@ -193,22 +193,38 @@ def setup_webdriver(**kwargs):
             st_module.error(f"WebDriver setup failed: {e}")
         return None
 
-def reset_to_login_page(driver):
+def reset_to_login_page(driver, st_module=None):
     try:
+        # Attempt to force logout before clearing cookies
+        try:
+            if st_module:
+                st_module.write("Sending robust logout request before reset...")
+            robust_logout_request(driver, st_module)
+        except Exception as e:
+            msg = f"Robust logout failed/prelogin: {e}"
+            if st_module:
+                st_module.warning(msg)
+            else:
+                print(msg)
+
         driver.delete_all_cookies()
         driver.get(WISERS_URL)
         time.sleep(2)
-        # Attempt to force logout if available
-        try:
-            robust_logout_request(driver)
-        except Exception as e:
-            print("Robust logout failed/prelogin:", e)
     except Exception as e:
-        print("Pre-login reset failed:", e)
+        msg = f"Pre-login reset failed: {e}"
+        if st_module:
+            st_module.warning(msg)
+        else:
+            print(msg)
 
-def clear_login_fields(driver):
+def clear_login_fields(driver, wait=None, st_module=None):
     """Clear login page fields if populated, will use .clear() if possible and also overwrite."""
     try:
+        if wait:
+            try:
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[data-qa-ci="groupid"]')))
+            except TimeoutException:
+                return
         selectors = {
             'groupid': 'input[data-qa-ci="groupid"]',
             'userid': 'input[data-qa-ci="userid"]',
@@ -224,8 +240,34 @@ def clear_login_fields(driver):
                     # fallback: overwrite with empty string
                     elems[0].send_keys('\ue009' + 'a')  # Ctrl+A
                     elems[0].send_keys('\ue003')       # Del
+                try:
+                    driver.execute_script("arguments[0].value = '';", elems[0])
+                except Exception:
+                    pass
     except Exception as e:
-        print("Field clearing failed:", e)
+        msg = f"Field clearing failed: {e}"
+        if st_module:
+            st_module.warning(msg)
+        else:
+            print(msg)
+
+
+def is_logged_in_state(driver):
+    """Heuristic check for post-login state (dashboard or search page)."""
+    if not driver:
+        return False
+    selectors = [
+        (By.CSS_SELECTOR, 'div.sc-1kg7aw5-0.dgeiTV > button'),  # dashboard/waffle
+        (By.CSS_SELECTOR, 'button#toggle-query-execute.btn.btn-primary'),  # search form
+        (By.CSS_SELECTOR, 'div.media-left > a[href="/wevo/home"]'),  # back to search
+    ]
+    for by, sel in selectors:
+        try:
+            if driver.find_elements(by, sel):
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def is_hkt_monday() -> bool:
@@ -342,27 +384,43 @@ def perform_login(**kwargs):
     st_module = kwargs.get('st_module')
 
     # === 0. Check if already post-login / tutorial modal ===
-    # If dashboard or known modal element present, close it then return early (already logged in!)
+    # If dashboard or search page detected, close modal if any then return early (already logged in!)
     try:
-        if driver.find_elements(By.CSS_SELECTOR, 'div.sc-1kg7aw5-0.dgeiTV > button'):
-            if st_module: st_module.write("Already logged in (dashboard detected).")
+        if is_logged_in_state(driver):
+            if st_module:
+                st_module.write("Already logged in (post-login page detected).")
             try:
                 close_tutorial_modal_ROBUST(driver=driver, wait=wait, status_text=st_module, st_module=st_module)
             except Exception as e:
-                if st_module: st_module.warning(f"Tutorial modal close failed: {e}")
+                if st_module:
+                    st_module.warning(f"Tutorial modal close failed: {e}")
             return
     except Exception:
         pass
 
     # === 1. Reset and clear: always start from fresh login page ===
     if st_module: st_module.write("Resetting to login page...")
-    reset_to_login_page(driver)
-    clear_login_fields(driver)
+    reset_to_login_page(driver, st_module=st_module)
+    clear_login_fields(driver, wait=wait, st_module=st_module)
 
     # === 2. Fill login form ===
-    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[data-qa-ci="groupid"]'))).send_keys(group_name)
-    driver.find_element(By.CSS_SELECTOR, 'input[data-qa-ci="userid"]').send_keys(username)
-    driver.find_element(By.CSS_SELECTOR, 'input[data-qa-ci="password"]').send_keys(password)
+    group_elem = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[data-qa-ci="groupid"]')))
+    user_elem = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[data-qa-ci="userid"]')))
+    pass_elem = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[data-qa-ci="password"]')))
+
+    for elem in (group_elem, user_elem, pass_elem):
+        try:
+            elem.clear()
+        except Exception:
+            pass
+        try:
+            driver.execute_script("arguments[0].value = '';", elem)
+        except Exception:
+            pass
+
+    group_elem.send_keys(group_name)
+    user_elem.send_keys(username)
+    pass_elem.send_keys(password)
 
     # === 3. Solve captcha ===
     try:
