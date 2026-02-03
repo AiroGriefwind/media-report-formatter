@@ -23,6 +23,7 @@ from utils.wisers_utils import (
     wait_for_search_results,
     search_title_from_home,
     search_title_via_edit_search_modal,
+    ensure_results_list_visible,
 )
 from utils.web_scraping_utils import scrape_hover_popovers
 from utils import international_news_utils as intl_utils
@@ -789,6 +790,7 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                             max_articles=per_period_max,
                             saved_search_name=saved_search_name,
                         )
+                        ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
 
                         if today_items:
                             full_articles_data.extend(
@@ -806,6 +808,7 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                                 max_articles=per_period_max,
                                 saved_search_name=saved_search_name,
                             )
+                            ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
                             full_articles_data.extend(
                                 scrape_articles_by_news_id(driver, wait, sunday_items, st_module=st)
                             )
@@ -817,6 +820,7 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                             max_articles=per_period_max,
                             saved_search_name=saved_search_name,
                         )
+                        ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
                         full_articles_data = scrape_articles_by_news_id(driver, wait, final_list, st_module=st)
 
                     # Detect missing items after first-round scrape
@@ -863,6 +867,7 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                             if not has_results:
                                 missing_round2.append(item)
                                 continue
+                            ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
 
                             retry_scraped = scrape_articles_by_news_id(driver, wait, [item], st_module=st)
                             if retry_scraped:

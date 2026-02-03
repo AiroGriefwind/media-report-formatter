@@ -31,6 +31,7 @@ from .wisers_utils import (
     wait_for_search_results, 
     scroll_to_load_all_content, 
     wait_for_ajax_complete,
+    ensure_results_list_visible,
 )
 
 
@@ -141,6 +142,7 @@ def run_saved_search_task(**kwargs):
             loading_grace_seconds=25,
             verify_no_results_wait=6,
         ):
+            ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
             # Scroll to load all content and wait for AJAX
             scroll_to_load_all_content(driver=driver, st_module=st)
             wait_for_ajax_complete(driver, timeout=10)
@@ -150,6 +152,8 @@ def run_saved_search_task(**kwargs):
 
             for retry in range(3):
                 results = driver.find_elements(By.CSS_SELECTOR, 'div.list-group-item.no-excerpt')
+                if not results:
+                    results = driver.find_elements(By.CSS_SELECTOR, 'div.list-group-item')
                 if st:
                     st.write(f"[Saved Search Scrape] Attempt {retry+1}: {len(results)} items found.")
 
@@ -763,28 +767,50 @@ def scrape_articles_by_news_id(driver, wait, articles_to_scrape, st_module=None)
                 try:
                     # Normalize spaces and try exact match first
                     normalized_title = ' '.join(title.split())
-                    
-                    # Try exact match
+                    title_links = []
+
+                    # Try exact match in standard headline layout
                     xpath_exact = f"//h4[@class='list-group-item-heading']//a[normalize-space()='{normalized_title}']"
                     title_links = driver.find_elements(By.XPATH, xpath_exact)
-                    
+
                     if not title_links:
                         # Try contains match (for truncated titles)
-                        xpath_contains = f"//h4[@class='list-group-item-heading']//a[contains(normalize-space(), '{normalized_title[:30]}')]"
+                        xpath_contains = (
+                            f"//h4[@class='list-group-item-heading']//a[contains(normalize-space(), '{normalized_title[:30]}')]"
+                        )
                         title_links = driver.find_elements(By.XPATH, xpath_contains)
-                    
+
+                    if not title_links:
+                        # Try popover title spans
+                        xpath_popover_exact = f"//span[@rel='popover-article' and normalize-space()='{normalized_title}']"
+                        title_links = driver.find_elements(By.XPATH, xpath_popover_exact)
+                        if not title_links:
+                            xpath_popover_contains = (
+                                f"//span[@rel='popover-article' and contains(normalize-space(), '{normalized_title[:30]}')]"
+                            )
+                            title_links = driver.find_elements(By.XPATH, xpath_popover_contains)
+
+                    if not title_links:
+                        # Try any anchor with exact title text
+                        xpath_any = f"//a[normalize-space()='{normalized_title}']"
+                        title_links = driver.find_elements(By.XPATH, xpath_any)
+
                     if title_links:
-                        # Get the parent list item
-                        target_element = title_links[0].find_element(By.XPATH, 
-                            "./ancestor::div[contains(@class, 'list-group-item')]")
-                        
+                        # Get the parent list item if present
+                        try:
+                            target_element = title_links[0].find_element(
+                                By.XPATH, "./ancestor::div[contains(@class, 'list-group-item')]"
+                            )
+                        except Exception:
+                            target_element = title_links[0]
+
                         if st_module:
                             st_module.write(f"✅ 用标题定位成功: {title[:40]}")
                     else:
                         if st_module:
                             st_module.warning(f"❌ 无法定位文章: {title}")
                         continue
-                        
+
                 except Exception as e:
                     if st_module:
                         st_module.error(f"❌ 定位失败: {title} - {e}")
@@ -792,7 +818,10 @@ def scrape_articles_by_news_id(driver, wait, articles_to_scrape, st_module=None)
             
             # Now click the article link (same logic as before)
             if target_element:
-                article_link = target_element.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a')
+                if target_element.tag_name.lower() == "a":
+                    article_link = target_element
+                else:
+                    article_link = target_element.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a')
                 # Robust click: overlays like <div class="subtitle"> can intercept clicks
                 handles_before = list(driver.window_handles)
                 _safe_click(driver, article_link, st_module=st_module, attempts=3)

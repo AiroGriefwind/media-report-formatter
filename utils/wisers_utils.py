@@ -726,6 +726,96 @@ def go_back_to_search_form(**kwargs):
     return True
 
 
+def dismiss_blocking_modals(driver, wait=None, st_module=None, keep_selectors=None):
+    """Best-effort close for unexpected blocking modals."""
+    keep_selectors = keep_selectors or []
+    try:
+        modals = driver.find_elements(
+            By.CSS_SELECTOR,
+            "div.modal.in, div.modal.show, div.modal[style*='display: block']",
+        )
+        for modal in modals:
+            try:
+                if not modal.is_displayed():
+                    continue
+            except Exception:
+                continue
+
+            skip = False
+            for sel in keep_selectors:
+                try:
+                    if modal.find_elements(By.CSS_SELECTOR, sel):
+                        skip = True
+                        break
+                except Exception:
+                    continue
+            if skip:
+                continue
+
+            # Prefer explicit close buttons
+            close_buttons = modal.find_elements(
+                By.CSS_SELECTOR, "button.close, button[data-dismiss='modal']"
+            )
+            if not close_buttons:
+                # Common confirm/acknowledge buttons
+                close_buttons = modal.find_elements(
+                    By.XPATH,
+                    ".//button[contains(text(),'確定') or contains(text(),'确定') or contains(text(),'知道') or contains(text(),'关闭') or contains(text(),'關閉') or contains(text(),'OK')]",
+                )
+            if close_buttons:
+                try:
+                    close_buttons[0].click()
+                    time.sleep(0.5)
+                    continue
+                except Exception:
+                    pass
+
+            # Last resort: ESC key
+            try:
+                ActionChains(driver).send_keys(Keys.ESCAPE).perform()
+                time.sleep(0.3)
+            except Exception:
+                pass
+    except Exception as e:
+        if st_module:
+            st_module.warning(f"關閉阻擋彈窗失敗: {e}")
+
+
+def ensure_results_list_visible(driver, wait=None, st_module=None):
+    """Try to activate a results tab that actually renders list items."""
+    def _has_items() -> bool:
+        if driver.find_elements(By.CSS_SELECTOR, "span[rel='popover-article']"):
+            return True
+        if driver.find_elements(By.CSS_SELECTOR, "div.list-group .list-group-item h4 a"):
+            return True
+        if driver.find_elements(By.CSS_SELECTOR, "div.list-group-item"):
+            return True
+        return False
+
+    if _has_items():
+        return True
+
+    try:
+        bar = driver.find_element(
+            By.XPATH,
+            "//ul[contains(@class,'nav-tabs') and contains(@class,'navbar-nav-pub')]",
+        )
+        tabs = bar.find_elements(By.XPATH, "./li[not(contains(@class,'dropdown'))]/a")
+        for tab in tabs:
+            try:
+                driver.execute_script("arguments[0].click();", tab)
+                time.sleep(1.2)
+                if _has_items():
+                    return True
+            except Exception:
+                continue
+    except Exception as e:
+        if st_module:
+            st_module.warning(f"切換結果分頁失敗: {e}")
+
+    return False
+
+
 def _clear_tag_editor(container, st_module=None):
     """Clear existing tags in a tag-editor container, best-effort."""
     try:
@@ -792,6 +882,7 @@ def search_title_from_home(**kwargs):
     _clear_tag_editor(editor_container, st_module=st)
     _fill_tag_editor_keyword(driver, editor_container, keyword, st_module=st)
 
+    dismiss_blocking_modals(driver, wait=wait, st_module=st)
     search_button = wait.until(
         EC.element_to_be_clickable((By.CSS_SELECTOR, "button#toggle-query-execute.btn.btn-primary"))
     )
@@ -807,6 +898,7 @@ def search_title_via_edit_search_modal(**kwargs):
     st = kwargs.get('st_module')
     keyword = kwargs.get('keyword')
 
+    dismiss_blocking_modals(driver, wait=wait, st_module=st)
     edit_btn = wait.until(
         EC.element_to_be_clickable(
             (By.XPATH, "//button[contains(.,'編輯搜索') or contains(.,'编辑搜索')]")
@@ -828,6 +920,7 @@ def search_title_via_edit_search_modal(**kwargs):
     _clear_tag_editor(editor_container, st_module=st)
     _fill_tag_editor_keyword(driver, editor_container, keyword, st_module=st)
 
+    dismiss_blocking_modals(driver, wait=wait, st_module=st, keep_selectors=["button.edit-search-button-track"])
     modal_search_btn.click()
     time.sleep(1.5)
     return True
