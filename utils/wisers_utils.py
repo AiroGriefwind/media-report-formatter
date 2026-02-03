@@ -17,6 +17,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.chrome.webdriver import WebDriver
 from twocaptcha import TwoCaptcha
@@ -719,6 +720,113 @@ def go_back_to_search_form(**kwargs):
     
     wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button#toggle-query-execute.btn.btn-primary')))
     time.sleep(3)
+    return True
+
+
+def _clear_tag_editor(container, st_module=None):
+    """Clear existing tags in a tag-editor container, best-effort."""
+    try:
+        delete_buttons = container.find_elements(By.CSS_SELECTOR, "li .tag-editor-delete")
+        for btn in delete_buttons:
+            try:
+                btn.click()
+                time.sleep(0.1)
+            except Exception:
+                continue
+    except Exception as e:
+        if st_module:
+            st_module.warning(f"清理搜索关键词失败: {e}")
+
+
+def _fill_tag_editor_keyword(driver, container, keyword: str, st_module=None):
+    """Enter a single keyword into a tag-editor container."""
+    keyword = (keyword or "").strip()
+    if not keyword:
+        return False
+
+    # First try: visible tag-editor input
+    try:
+        inputs = container.find_elements(By.CSS_SELECTOR, "input.tag-editor-input")
+        if inputs:
+            inputs[0].click()
+            inputs[0].clear()
+            inputs[0].send_keys(keyword)
+            inputs[0].send_keys(Keys.ENTER)
+            return True
+    except Exception:
+        pass
+
+    # Second try: click editor and type via ActionChains
+    try:
+        editor = container.find_element(By.CSS_SELECTOR, "ul.tag-editor")
+        editor.click()
+        ActionChains(driver).send_keys(keyword).send_keys(Keys.ENTER).perform()
+        return True
+    except Exception:
+        pass
+
+    # Last resort: set hidden textarea value
+    try:
+        hidden = container.find_element(By.CSS_SELECTOR, "textarea.tag-editor-hidden-src")
+        driver.execute_script("arguments[0].value = arguments[1];", hidden, keyword)
+        return True
+    except Exception as e:
+        if st_module:
+            st_module.warning(f"输入搜索关键词失败: {e}")
+    return False
+
+
+@retry_step
+def search_title_from_home(**kwargs):
+    """On /wevo/home, input a title in the main search box and execute search."""
+    driver = kwargs.get('driver')
+    wait = kwargs.get('wait')
+    st = kwargs.get('st_module')
+    keyword = kwargs.get('keyword')
+
+    home_panel = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div#query-instant")))
+    editor_container = home_panel.find_element(By.CSS_SELECTOR, "div.app-query-tageditor-instance")
+    _clear_tag_editor(editor_container, st_module=st)
+    _fill_tag_editor_keyword(driver, editor_container, keyword, st_module=st)
+
+    search_button = wait.until(
+        EC.element_to_be_clickable((By.CSS_SELECTOR, "button#toggle-query-execute.btn.btn-primary"))
+    )
+    search_button.click()
+    return True
+
+
+@retry_step
+def search_title_via_edit_search_modal(**kwargs):
+    """On search results page, open '编辑搜索' modal and search by title."""
+    driver = kwargs.get('driver')
+    wait = kwargs.get('wait')
+    st = kwargs.get('st_module')
+    keyword = kwargs.get('keyword')
+
+    edit_btn = wait.until(
+        EC.element_to_be_clickable(
+            (By.XPATH, "//button[contains(.,'編輯搜索') or contains(.,'编辑搜索')]")
+        )
+    )
+    edit_btn.click()
+
+    modal_search_btn = wait.until(
+        EC.element_to_be_clickable((By.CSS_SELECTOR, "button.edit-search-button-track"))
+    )
+    modal_root = modal_search_btn.find_element(By.XPATH, "./ancestor::div[contains(@class,'modal')]")
+
+    editor_container = None
+    try:
+        editor_container = modal_root.find_element(By.CSS_SELECTOR, "div.app-query-tageditor-instance")
+    except Exception:
+        editor_container = modal_root
+
+    _clear_tag_editor(editor_container, st_module=st)
+    _fill_tag_editor_keyword(driver, editor_container, keyword, st_module=st)
+
+    modal_search_btn.click()
+    time.sleep(1.5)
     return True
 
 # =============================================================================

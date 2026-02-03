@@ -827,6 +827,9 @@ def scrape_articles_by_news_id(driver, wait, articles_to_scrape, st_module=None)
                     'full_text': f"{full_title}\n\n{full_metadata}\n\n{content_body}",
                     # carry UI flags forward
                     'multi_newspapers': multi_newspapers,
+                    # trace back to source list for retry/matching
+                    'news_id': news_id,
+                    'source_title': title,
                 }
                 
                 # Preserve AI analysis if exists

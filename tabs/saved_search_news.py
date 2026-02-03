@@ -19,6 +19,10 @@ from utils.wisers_utils import (
     robust_logout_request,
     set_date_range_period,
     is_hkt_monday,
+    go_back_to_search_form,
+    wait_for_search_results,
+    search_title_from_home,
+    search_title_via_edit_search_modal,
 )
 from utils.web_scraping_utils import scrape_hover_popovers
 from utils import international_news_utils as intl_utils
@@ -69,6 +73,25 @@ def article_uid(article: dict) -> str:
         or article.get("url")
         or str(article.get("original_index", "na"))
     )
+
+
+def _normalize_title(title: str) -> str:
+    return " ".join((title or "").strip().split())
+
+
+def _article_key_from_item(item: dict) -> str:
+    news_id = item.get("news_id") or item.get("newsid")
+    if news_id:
+        return f"id:{news_id}"
+    return f"title:{_normalize_title(item.get('title'))}"
+
+
+def _article_key_from_scraped(item: dict) -> str:
+    news_id = item.get("news_id") or item.get("newsid")
+    if news_id:
+        return f"id:{news_id}"
+    source_title = item.get("source_title") or item.get("title")
+    return f"title:{_normalize_title(source_title)}"
 
 
 def build_grouped_data(article_list: list, category_label: str) -> dict:
@@ -795,6 +818,65 @@ def _handle_saved_search_news_logic(config, group_name, username, password, api_
                             saved_search_name=saved_search_name,
                         )
                         full_articles_data = scrape_articles_by_news_id(driver, wait, final_list, st_module=st)
+
+                    # Detect missing items after first-round scrape
+                    scraped_keys = {_article_key_from_scraped(a) for a in (full_articles_data or [])}
+                    scraped_titles = {
+                        _normalize_title(a.get("title") or a.get("source_title") or "")
+                        for a in (full_articles_data or [])
+                    }
+                    missing_items = []
+                    for item in final_list:
+                        key = _article_key_from_item(item)
+                        if key in scraped_keys:
+                            continue
+                        title_norm = _normalize_title(item.get("title"))
+                        if title_norm and title_norm in scraped_titles:
+                            continue
+                        missing_items.append(item)
+
+                    # Second-round scrape for missing items via direct title search
+                    if missing_items:
+                        st.warning(f"⚠️ 第一輪最終爬取缺失 {len(missing_items)} 篇，開始二次搜索補爬...")
+                        fb_logger.save_json_to_date_folder(
+                            missing_items,
+                            "missing_articles_round1.json",
+                            base_folder=base_folder,
+                        )
+
+                        missing_round2 = []
+                        try:
+                            go_back_to_search_form(driver=driver, wait=wait, st_module=st)
+                        except Exception:
+                            pass
+
+                        for idx, item in enumerate(missing_items):
+                            title = item.get("title", "")
+                            st.write(f"🔁 二次搜索 ({idx+1}/{len(missing_items)}): {title[:50]}...")
+
+                            if idx == 0:
+                                search_title_from_home(driver=driver, wait=wait, keyword=title, st_module=st)
+                            else:
+                                search_title_via_edit_search_modal(driver=driver, wait=wait, keyword=title, st_module=st)
+
+                            has_results = wait_for_search_results(driver=driver, wait=wait, st_module=st)
+                            if not has_results:
+                                missing_round2.append(item)
+                                continue
+
+                            retry_scraped = scrape_articles_by_news_id(driver, wait, [item], st_module=st)
+                            if retry_scraped:
+                                full_articles_data.extend(retry_scraped)
+                            else:
+                                missing_round2.append(item)
+
+                        if missing_round2:
+                            st.warning(f"⚠️ 二次搜索仍缺失 {len(missing_round2)} 篇，已記錄清單。")
+                            fb_logger.save_json_to_date_folder(
+                                missing_round2,
+                                "missing_articles_round2.json",
+                                base_folder=base_folder,
+                            )
 
                     st.session_state[f"{prefix}_final_articles"] = full_articles_data
                     fb_logger.save_json_to_date_folder(full_articles_data, "full_scraped_articles.json", base_folder=base_folder)
