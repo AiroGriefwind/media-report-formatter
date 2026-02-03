@@ -890,7 +890,7 @@ def _handle_international_news_logic(
                     
                     # ✅ 重新搜索以显示结果页（但不再依赖索引）
                     is_monday = is_hkt_monday()
-                    per_period_max = max(1, max_articles_intl // 2) if is_monday else max_articles_intl
+                    per_period_max = max(1, max_articles // 2) if is_monday else max_articles
                     if is_monday:
                         today_items = [a for a in final_list if a.get("day_tag") != "周日"]
                         sunday_items = [a for a in final_list if a.get("day_tag") == "周日"]
