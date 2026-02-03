@@ -531,11 +531,93 @@ def wait_for_search_results(**kwargs):
     driver = kwargs.get('driver')
     wait = kwargs.get('wait')
     st_module = kwargs.get('st_module')
+    logger = kwargs.get('logger')
+    screenshot_dir = (
+        kwargs.get("screenshot_dir")
+        or os.getenv("WISERS_SCREENSHOT_DIR")
+        or os.path.join(".", "artifacts", "screenshots")
+    )
+    loading_grace_seconds = kwargs.get("loading_grace_seconds", 20)
+    verify_no_results_wait = kwargs.get("verify_no_results_wait", 6)
+
+    def _log_info(msg):
+        if st_module:
+            st_module.write(msg)
+        if logger and hasattr(logger, "info"):
+            try:
+                logger.info(msg)
+            except Exception:
+                pass
+
+    def _log_warn(msg):
+        if st_module:
+            st_module.warning(msg)
+        if logger and hasattr(logger, "warn"):
+            try:
+                logger.warn(msg)
+            except Exception:
+                pass
+
+    def _save_search_screenshot(reason: str):
+        if not driver:
+            return None
+        try:
+            os.makedirs(screenshot_dir, exist_ok=True)
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            fname = f"{ts}_{reason}.png"
+            local_fp = os.path.join(screenshot_dir, fname)
+            img_bytes = driver.get_screenshot_as_png()
+            with open(local_fp, "wb") as f:
+                f.write(img_bytes)
+            if st_module:
+                st_module.image(img_bytes, caption=f"{reason} screenshot")
+            return local_fp
+        except Exception:
+            return None
+
+    def _detect_no_article_banner() -> bool:
+        try:
+            els = driver.find_elements(
+                By.XPATH,
+                "//h5[contains(text(),'没有文章') or contains(text(),'沒有文章')]"
+                " | //div[contains(@class,'empty-result')]"
+                " | //div[contains(@class,'no-results')]"
+                " | //div[contains(@id,'article-tab') and contains(@class,'tab-pane')]"
+                "//h5[contains(text(),'没有文章') or contains(text(),'沒有文章')]"
+            )
+            return len(els) > 0
+        except Exception:
+            return False
+
+    def _results_are_empty() -> bool:
+        try:
+            bar = driver.find_element(
+                By.XPATH,
+                "//ul[contains(@class,'nav-tabs') and contains(@class,'navbar-nav-pub')]"
+            )
+            items = bar.find_elements(By.XPATH, "./li[not(contains(@class,'dropdown'))]")
+            total = 0
+            zeros = 0
+            for li in items:
+                spans = li.find_elements(By.XPATH, "./a/span")
+                for s in spans:
+                    txt = s.text.strip()
+                    if txt.startswith("(") and txt.endswith(")"):
+                        total += 1
+                        if txt == "(0)":
+                            zeros += 1
+                        break
+            return total > 0 and total == zeros
+        except Exception:
+            return False
+
+    def _confirm_no_results() -> bool:
+        return _results_are_empty() or _detect_no_article_banner()
     
     try:
         wait.until(EC.presence_of_element_located((
             By.CSS_SELECTOR,
-            'div.list-group, div.list-group-item, .no-results, [class*="empty"]'
+            'div.list-group, div.list-group-item, ul.nav-tabs.navbar-nav-pub, .no-results, [class*="empty"]'
         )))
     except TimeoutException:
         raise TimeoutException("Page did not load any known content after search.")
@@ -555,19 +637,39 @@ def wait_for_search_results(**kwargs):
                 st_module.write("✅ Search results found.")
             return True
     
-    # Check for no results
-    no_results_selectors = [
-        ".no-results",
-        "[class*='no-result']",
-        "[class*='empty']"
-    ]
-    
-    for selector in no_results_selectors:
-        if driver.find_elements(By.CSS_SELECTOR, selector):
-            if st_module:
-                st_module.warning("ℹ️ No results found for this query.")
-            return False
-    
+    # If no results yet, allow extra time for loading and double-check empty state
+    end_time = time.time() + max(0, loading_grace_seconds)
+    last_logged = 0
+    while time.time() <= end_time:
+        for selector in result_selectors:
+            if driver.find_elements(By.CSS_SELECTOR, selector):
+                _log_info("✅ Search results found.")
+                return True
+
+        if _confirm_no_results():
+            _log_warn("ℹ️ No-article signal detected, verifying once more...")
+            time.sleep(max(0, verify_no_results_wait))
+            for selector in result_selectors:
+                if driver.find_elements(By.CSS_SELECTOR, selector):
+                    _log_info("✅ Results appeared after verification wait.")
+                    return True
+            if _confirm_no_results():
+                _log_warn("ℹ️ No results confirmed for this query.")
+                _save_search_screenshot("no_results_confirmed")
+                return False
+
+        now = time.time()
+        if now - last_logged > 6:
+            _log_info("⏳ Search still loading, waiting a bit longer...")
+            last_logged = now
+        time.sleep(2)
+
+    # Final check after grace period
+    if _confirm_no_results():
+        _log_warn("ℹ️ No results confirmed after wait.")
+        _save_search_screenshot("no_results_confirmed")
+        return False
+
     # Ambiguous state
     raise Exception("Search page loaded, but content was unrecognized.")
 

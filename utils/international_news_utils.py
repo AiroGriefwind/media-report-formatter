@@ -43,6 +43,8 @@ def run_saved_search_task(**kwargs):
     max_articles = kwargs.get('max_articles', 30)
     saved_search_name = kwargs.get('saved_search_name', '').strip()
     return_meta = bool(kwargs.get('return_meta', False))
+    logger = kwargs.get('logger')
+    screenshot_dir = kwargs.get('screenshot_dir')
     if not saved_search_name:
         return ([], {"saved_search_found": False, "no_results": True}) if return_meta else []
 
@@ -130,7 +132,15 @@ def run_saved_search_task(**kwargs):
             st.write("⏳ Waiting 15 seconds for search results to fully load...")
         time.sleep(15)
 
-        if wait_for_search_results(driver=driver, wait=wait, st_module=st):
+        if wait_for_search_results(
+            driver=driver,
+            wait=wait,
+            st_module=st,
+            logger=logger,
+            screenshot_dir=screenshot_dir,
+            loading_grace_seconds=25,
+            verify_no_results_wait=6,
+        ):
             # Scroll to load all content and wait for AJAX
             scroll_to_load_all_content(driver=driver, st_module=st)
             wait_for_ajax_complete(driver, timeout=10)
@@ -873,10 +883,9 @@ def create_international_news_report(**kwargs):
     output_path = kwargs.get('output_path')
     st = kwargs.get('st_module')
     report_title = kwargs.get('report_title') or '國際新聞摘要'
-
-    # 防禦：如果沒有有效 articles_data，提早拋錯，避免 NoneType 迭代
     if not articles_data:
-        raise ValueError("create_international_news_report: 'articles_data' is empty or None")
+        if st:
+            st.warning("⚠️ articles_data 為空，將生成空報告。")
 
     from docx import Document
 
@@ -892,30 +901,34 @@ def create_international_news_report(**kwargs):
     date_para = doc.add_paragraph(f"日期：{today_str}")
     date_para.add_run().add_break()
 
-    # Add articles
-    for i, article in enumerate(articles_data, 1):
-        if article and article.get('full_text'):
-            # Add article number and title
-            title_para = doc.add_paragraph()
-            title_run = title_para.add_run(f"{i}. {article['title']}")
-            title_run.bold = True
+    # Add articles (or empty-state note)
+    if not articles_data:
+        doc.add_paragraph("本次搜索沒有文章。")
+        doc.add_paragraph()
+    else:
+        for i, article in enumerate(articles_data, 1):
+            if article and article.get('full_text'):
+                # Add article number and title
+                title_para = doc.add_paragraph()
+                title_run = title_para.add_run(f"{i}. {article['title']}")
+                title_run.bold = True
 
-            # ✅ CHANGED: Add full metadata line from article page
-            if article.get('metadata_line'):
-                metadata_line = article['metadata_line']
-                if bool(article.get("multi_newspapers", False)):
-                    metadata_line = _inject_multi_newspaper_placeholder(metadata_line)
-                metadata_para = doc.add_paragraph(metadata_line)
-                metadata_para.style = doc.styles['Normal']
+                # ✅ CHANGED: Add full metadata line from article page
+                if article.get('metadata_line'):
+                    metadata_line = article['metadata_line']
+                    if bool(article.get("multi_newspapers", False)):
+                        metadata_line = _inject_multi_newspaper_placeholder(metadata_line)
+                    metadata_para = doc.add_paragraph(metadata_line)
+                    metadata_para.style = doc.styles['Normal']
 
-            # Add content
-            if article.get('content'):
-                for paragraph_text in article['content'].split('\n\n'):
-                    if paragraph_text.strip():
-                        doc.add_paragraph(paragraph_text.strip())
+                # Add content
+                if article.get('content'):
+                    for paragraph_text in article['content'].split('\n\n'):
+                        if paragraph_text.strip():
+                            doc.add_paragraph(paragraph_text.strip())
 
-            # Add spacing between articles
-            doc.add_paragraph()
+                # Add spacing between articles
+                doc.add_paragraph()
 
     # Add end marker
     add_end_marker(doc)
