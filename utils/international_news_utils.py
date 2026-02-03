@@ -32,6 +32,7 @@ from .wisers_utils import (
     scroll_to_load_all_content, 
     wait_for_ajax_complete,
     ensure_results_list_visible,
+    wait_for_results_panel_ready,
 )
 
 
@@ -142,6 +143,15 @@ def run_saved_search_task(**kwargs):
             loading_grace_seconds=25,
             verify_no_results_wait=6,
         ):
+            try:
+                driver.find_element(
+                    By.XPATH,
+                    "//ul[contains(@class,'nav-tabs') and contains(@class,'navbar-nav-pub')]",
+                )
+            except Exception:
+                if st:
+                    st.warning("⚠️ 未检测到结果页顶部栏目栏（总览/报刊等），可能仍在加载中。")
+            wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
             ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
             # Scroll to load all content and wait for AJAX
             scroll_to_load_all_content(driver=driver, st_module=st)
@@ -154,6 +164,8 @@ def run_saved_search_task(**kwargs):
                 results = driver.find_elements(By.CSS_SELECTOR, 'div.list-group-item.no-excerpt')
                 if not results:
                     results = driver.find_elements(By.CSS_SELECTOR, 'div.list-group-item')
+                if not results:
+                    results = driver.find_elements(By.CSS_SELECTOR, 'div.list-article')
                 if st:
                     st.write(f"[Saved Search Scrape] Attempt {retry+1}: {len(results)} items found.")
 
@@ -162,9 +174,43 @@ def run_saved_search_task(**kwargs):
 
                 for i, result in enumerate(results):
                     try:
-                        title_element = result.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a')
-                        title = title_element.text.strip()
-                        article_url = title_element.get_attribute('href')
+                        title_element = None
+                        title = ""
+                        article_url = ""
+
+                        # Prefer old layout
+                        try:
+                            title_element = result.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a')
+                        except Exception:
+                            title_element = None
+
+                        if not title_element:
+                            try:
+                                title_element = result.find_element(By.CSS_SELECTOR, "span[rel='popover-article']")
+                            except Exception:
+                                title_element = None
+
+                        if not title_element:
+                            try:
+                                title_element = result.find_element(By.CSS_SELECTOR, "a[href]")
+                            except Exception:
+                                title_element = None
+
+                        if title_element:
+                            title = title_element.text.strip()
+                            try:
+                                article_url = title_element.get_attribute('href') or ""
+                            except Exception:
+                                article_url = ""
+                        else:
+                            # Fallback: pick the longest visible link text
+                            links = result.find_elements(By.CSS_SELECTOR, "a[href]")
+                            if links:
+                                best = max(links, key=lambda el: len(el.text or ""))
+                                title = (best.text or "").strip()
+                                article_url = best.get_attribute("href") or ""
+                        if not title:
+                            continue
 
                         # Get media name
                         try:
@@ -817,25 +863,46 @@ def scrape_articles_by_news_id(driver, wait, articles_to_scrape, st_module=None)
                     continue
             
             # Now click the article link (same logic as before)
+            new_window = False
             if target_element:
+                article_link = None
                 if target_element.tag_name.lower() == "a":
                     article_link = target_element
                 else:
-                    article_link = target_element.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a')
+                    try:
+                        article_link = target_element.find_element(By.CSS_SELECTOR, 'h4.list-group-item-heading a')
+                    except Exception:
+                        article_link = None
+
+                if not article_link:
+                    try:
+                        article_link = target_element.find_element(By.CSS_SELECTOR, "a[href]")
+                    except Exception:
+                        article_link = None
+
                 # Robust click: overlays like <div class="subtitle"> can intercept clicks
                 handles_before = list(driver.window_handles)
-                _safe_click(driver, article_link, st_module=st_module, attempts=3)
-                
-                # Wait for new window and switch
-                WebDriverWait(driver, 8).until(
-                    lambda d: len(d.window_handles) == len(handles_before) + 1
-                )
-                for window_handle in driver.window_handles:
-                    if window_handle != original_window:
-                        driver.switch_to.window(window_handle)
-                        break
-                
-                # Scrape content
+                if article_link:
+                    _safe_click(driver, article_link, st_module=st_module, attempts=3)
+                else:
+                    _safe_click(driver, target_element, st_module=st_module, attempts=3)
+
+                # Wait for new window OR article detail in same window
+                try:
+                    WebDriverWait(driver, 6).until(
+                        lambda d: len(d.window_handles) == len(handles_before) + 1
+                    )
+                    new_window = True
+                except Exception:
+                    new_window = False
+
+                if new_window:
+                    for window_handle in driver.window_handles:
+                        if window_handle != original_window:
+                            driver.switch_to.window(window_handle)
+                            break
+
+                # Scrape content (same-tab or new-tab)
                 wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.article-detail')))
                 time.sleep(1.5)
                 
@@ -871,9 +938,21 @@ def scrape_articles_by_news_id(driver, wait, articles_to_scrape, st_module=None)
                 scraped_data.append(article_data)
                 
                 # Close and return to search results
-                driver.close()
-                driver.switch_to.window(original_window)
-                time.sleep(0.5)
+                if new_window:
+                    driver.close()
+                    driver.switch_to.window(original_window)
+                    time.sleep(0.5)
+                else:
+                    try:
+                        driver.back()
+                        WebDriverWait(driver, 8).until(
+                            EC.presence_of_element_located(
+                                (By.CSS_SELECTOR, "div.tabpanel-content, div.list-group, div.list-article")
+                            )
+                        )
+                    except Exception:
+                        pass
+                    time.sleep(0.5)
                 
         except Exception as e:
             if st_module:

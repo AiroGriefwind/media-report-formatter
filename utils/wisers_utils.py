@@ -788,6 +788,8 @@ def ensure_results_list_visible(driver, wait=None, st_module=None):
             return True
         if driver.find_elements(By.CSS_SELECTOR, "div.list-group .list-group-item h4 a"):
             return True
+        if driver.find_elements(By.CSS_SELECTOR, "div.list-article"):
+            return True
         if driver.find_elements(By.CSS_SELECTOR, "div.list-group-item"):
             return True
         return False
@@ -816,16 +818,68 @@ def ensure_results_list_visible(driver, wait=None, st_module=None):
     return False
 
 
-def _clear_tag_editor(container, st_module=None):
+def wait_for_results_panel_ready(driver, wait=None, st_module=None, timeout=20):
+    """Wait until results panel finishes loading (preloader disappears)."""
+    try:
+        w = wait or WebDriverWait(driver, timeout)
+        w.until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, "div.tabpanel-content, div.list-article, div.list-group")
+            )
+        )
+        try:
+            preloader = driver.find_elements(By.CSS_SELECTOR, "div.tab-content-preloader")
+            if preloader:
+                WebDriverWait(driver, timeout).until(
+                    EC.invisibility_of_element_located((By.CSS_SELECTOR, "div.tab-content-preloader"))
+                )
+        except Exception:
+            pass
+        # Ensure actual content container appears
+        try:
+            WebDriverWait(driver, timeout).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.tab-content"))
+            )
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        if st_module:
+            st_module.warning(f"等待結果區載入超時: {e}")
+        return False
+
+
+def _clear_tag_editor(driver, container, st_module=None):
     """Clear existing tags in a tag-editor container, best-effort."""
     try:
-        delete_buttons = container.find_elements(By.CSS_SELECTOR, "li .tag-editor-delete")
-        for btn in delete_buttons:
-            try:
-                btn.click()
-                time.sleep(0.1)
-            except Exception:
-                continue
+        for _ in range(5):
+            delete_buttons = container.find_elements(By.CSS_SELECTOR, "li .tag-editor-delete")
+            if not delete_buttons:
+                break
+            for btn in delete_buttons:
+                try:
+                    driver.execute_script("arguments[0].click();", btn)
+                    time.sleep(0.1)
+                except Exception:
+                    try:
+                        btn.click()
+                    except Exception:
+                        continue
+            time.sleep(0.2)
+        # Also clear hidden textarea and any tag nodes
+        try:
+            hidden = container.find_element(By.CSS_SELECTOR, "textarea.tag-editor-hidden-src")
+            driver.execute_script("arguments[0].value = '';", hidden)
+        except Exception:
+            pass
+        try:
+            driver.execute_script(
+                "var ul=arguments[0].querySelector('ul.tag-editor');"
+                "if(ul){ul.querySelectorAll('li.tag-editor-tag').forEach(n=>n.remove());}",
+                container,
+            )
+        except Exception:
+            pass
     except Exception as e:
         if st_module:
             st_module.warning(f"清理搜索关键词失败: {e}")
@@ -861,7 +915,12 @@ def _fill_tag_editor_keyword(driver, container, keyword: str, st_module=None):
     # Last resort: set hidden textarea value
     try:
         hidden = container.find_element(By.CSS_SELECTOR, "textarea.tag-editor-hidden-src")
-        driver.execute_script("arguments[0].value = arguments[1];", hidden, keyword)
+        driver.execute_script(
+            "arguments[0].value = arguments[1];"
+            "if(arguments[0].dispatchEvent){arguments[0].dispatchEvent(new Event('change',{bubbles:true}));}",
+            hidden,
+            keyword,
+        )
         return True
     except Exception as e:
         if st_module:
@@ -879,7 +938,7 @@ def search_title_from_home(**kwargs):
 
     home_panel = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div#query-instant")))
     editor_container = home_panel.find_element(By.CSS_SELECTOR, "div.app-query-tageditor-instance")
-    _clear_tag_editor(editor_container, st_module=st)
+    _clear_tag_editor(driver, editor_container, st_module=st)
     _fill_tag_editor_keyword(driver, editor_container, keyword, st_module=st)
 
     dismiss_blocking_modals(driver, wait=wait, st_module=st)
@@ -899,16 +958,28 @@ def search_title_via_edit_search_modal(**kwargs):
     keyword = kwargs.get('keyword')
 
     dismiss_blocking_modals(driver, wait=wait, st_module=st)
-    edit_btn = wait.until(
-        EC.element_to_be_clickable(
-            (By.XPATH, "//button[contains(.,'編輯搜索') or contains(.,'编辑搜索')]")
+    modal_search_btn = None
+    try:
+        modal_search_btn = wait.until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "button.edit-search-button-track"))
         )
-    )
-    edit_btn.click()
+    except Exception:
+        modal_search_btn = None
 
-    modal_search_btn = wait.until(
-        EC.element_to_be_clickable((By.CSS_SELECTOR, "button.edit-search-button-track"))
-    )
+    if not modal_search_btn:
+        edit_btn = wait.until(
+            EC.element_to_be_clickable(
+                (By.XPATH, "//button[contains(.,'編輯搜索') or contains(.,'编辑搜索')]")
+            )
+        )
+        try:
+            edit_btn.click()
+        except Exception:
+            driver.execute_script("arguments[0].click();", edit_btn)
+
+        modal_search_btn = wait.until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "button.edit-search-button-track"))
+        )
     modal_root = modal_search_btn.find_element(By.XPATH, "./ancestor::div[contains(@class,'modal')]")
 
     editor_container = None
@@ -917,7 +988,7 @@ def search_title_via_edit_search_modal(**kwargs):
     except Exception:
         editor_container = modal_root
 
-    _clear_tag_editor(editor_container, st_module=st)
+    _clear_tag_editor(driver, editor_container, st_module=st)
     _fill_tag_editor_keyword(driver, editor_container, keyword, st_module=st)
 
     dismiss_blocking_modals(driver, wait=wait, st_module=st, keep_selectors=["button.edit-search-button-track"])
