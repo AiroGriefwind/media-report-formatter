@@ -67,6 +67,37 @@ MEDIA_FILTER_CONTAINER_SELECTOR = (
 MEDIA_FILTER_KEEP_LABELS = ["報刊", "綜合新聞", "香港"]
 
 
+def _get_credentials():
+    """Helper function to get credentials from secrets or manual input"""
+    try:
+        group_name = st.secrets["wisers"]["group_name"]
+        username = st.secrets["wisers"]["username"]
+        password = st.secrets["wisers"]["password"]
+        svc_dict = dict(st.secrets["firebase"]["service_account"])
+        bucket = st.secrets.get("firebase", {}).get("storage_bucket") or f"{svc_dict['project_id']}.appspot.com"
+        st.success("✅ Credentials loaded from secrets")
+        st.info(f"Group: {group_name}\n\nUsername: {username}\n\nPassword: ****\n\nFirebase Bucket: {bucket}")
+        return group_name, username, password, bucket
+    except (KeyError, AttributeError, st.errors.StreamlitAPIException):
+        st.warning("⚠️ Secrets not found. Please enter credentials manually:")
+        group_name = st.text_input("Group Name", value="SPRG1", key="hkkw-group")
+        username = st.text_input("Username", placeholder="Enter username", key="hkkw-username")
+        password = st.text_input("Password", type="password", placeholder="Enter password", key="hkkw-password")
+        bucket = None
+        return group_name, username, password, bucket
+
+
+def _get_api_key():
+    """Helper function to get API key from secrets or manual input"""
+    try:
+        api_key = st.secrets["wisers"]["api_key"]
+        st.success(f"✅ 2Captcha API Key loaded: {api_key[:8]}...")
+        return api_key
+    except (KeyError, AttributeError, st.errors.StreamlitAPIException):
+        st.warning("⚠️ API key not found in secrets")
+        return st.text_input("2Captcha API Key", type="password", placeholder="Enter API key", key="hkkw-api-key")
+
+
 def _ensure_keyword_state(prefix: str):
     keyword_key = f"{prefix}_keyword"
     content_key = f"{prefix}_include_content"
@@ -678,15 +709,8 @@ def render_hong_kong_keyword_search_tab():
         "file_prefix": "LocalNewsKeywordReport",
     }
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        group_name = st.text_input("Group Name", value="SPRG1", key="hkkw-group")
-    with col2:
-        username = st.text_input("Username", value="", key="hkkw-username")
-    with col3:
-        password = st.text_input("Password", value="", type="password", key="hkkw-password")
-
-    api_key = st.text_input("2Captcha API Key", value="", type="password", key="hkkw-api-key")
+    group_name, username, password, _bucket = _get_credentials()
+    api_key = _get_api_key()
 
     col4, col5, col6 = st.columns(3)
     with col4:
