@@ -982,6 +982,55 @@ def inject_cjk_font_css(driver, st_module=None):
     if not driver:
         return False
     try:
+        font_b64 = None
+        if st_module is not None:
+            try:
+                font_b64 = st_module.secrets.get("fonts", {}).get("cjk_base64")
+            except Exception:
+                font_b64 = None
+            if not font_b64:
+                try:
+                    font_b64 = st_module.secrets.get("wisers", {}).get("cjk_font_base64")
+                except Exception:
+                    font_b64 = None
+            if not font_b64:
+                try:
+                    font_path = st_module.secrets.get("fonts", {}).get("cjk_path")
+                except Exception:
+                    font_path = None
+                if font_path and os.path.exists(font_path):
+                    try:
+                        with open(font_path, "rb") as f:
+                            font_b64 = base64.b64encode(f.read()).decode("ascii")
+                    except Exception:
+                        font_b64 = None
+        if not font_b64:
+            font_b64 = os.getenv("CJK_FONT_BASE64")
+        if not font_b64:
+            env_font_path = os.getenv("CJK_FONT_PATH")
+            if env_font_path and os.path.exists(env_font_path):
+                try:
+                    with open(env_font_path, "rb") as f:
+                        font_b64 = base64.b64encode(f.read()).decode("ascii")
+                except Exception:
+                    font_b64 = None
+        if not font_b64:
+            for rel_path in [
+                os.path.join("assets", "fonts", "NotoSansCJKtc-Regular.otf"),
+                os.path.join("assets", "fonts", "NotoSansCJKsc-Regular.otf"),
+                os.path.join("assets", "fonts", "NotoSansTC-Regular.otf"),
+            ]:
+                if os.path.exists(rel_path):
+                    try:
+                        with open(rel_path, "rb") as f:
+                            font_b64 = base64.b64encode(f.read()).decode("ascii")
+                        break
+                    except Exception:
+                        font_b64 = None
+        if font_b64:
+            font_b64 = font_b64.strip()
+            if font_b64.startswith("data:"):
+                font_b64 = font_b64.split(",", 1)[-1].strip()
         driver.execute_script(
             """
             (function() {
@@ -990,12 +1039,21 @@ def inject_cjk_font_css(driver, st_module=None):
               var style = document.createElement('style');
               style.id = id;
               style.type = 'text/css';
-              style.textContent = "html, body, * { font-family: "
+              style.textContent = "";
+              if (arguments[0]) {
+                style.textContent += "@font-face { font-family: 'CJKBase64'; "
+                  + "src: url(data:font/ttf;base64," + arguments[0] + ") format('truetype'); "
+                  + "font-display: swap; }";
+              }
+              style.textContent += "html, body, * { font-family: "
+                + (arguments[0] ? "'CJKBase64'," : "")
                 + "'Microsoft JhengHei', 'Microsoft YaHei', 'PingFang TC', 'PingFang SC', "
                 + "'Noto Sans CJK TC', 'Noto Sans CJK SC', 'SimSun', 'SimHei', sans-serif !important; }";
               document.head.appendChild(style);
             })();
             """
+            ,
+            font_b64,
         )
         try:
             driver.execute_script(
@@ -1060,6 +1118,40 @@ def set_media_filters_in_panel(**kwargs):
             st.warning("未找到媒體/作者篩選區域，將跳過篩選設定。")
         return False
 
+    # Prefer toggling label-based checkboxes (custom UI)
+    try:
+        result = driver.execute_script(
+            """
+            const root = arguments[0];
+            const keep = arguments[1] || [];
+            let changed = 0;
+            let total = 0;
+            const labels = root.querySelectorAll('label.checkbox-custom-label');
+            labels.forEach(label => {
+              total += 1;
+              const raw = label.getAttribute('data-original-title') || label.textContent || '';
+              const txt = raw.replace(/\\s+/g, '').trim();
+              if (!txt) return;
+              const shouldCheck = keep.includes(txt);
+              const isChecked = label.classList.contains('checked');
+              if (shouldCheck !== isChecked) {
+                label.click();
+                changed += 1;
+              }
+            });
+            return {changed: changed, total: total};
+            """,
+            container,
+            list(keep_labels),
+        )
+        if result and result.get("total"):
+            if st:
+                st.write(f"✅ 已更新媒體/作者勾選框：保留 {', '.join(sorted(keep_labels))}")
+            return bool(result.get("changed") is not None)
+    except Exception:
+        pass
+
+    # Fallback to input-based checkboxes
     checkboxes = container.find_elements(By.CSS_SELECTOR, "input[type='checkbox']")
     if not checkboxes:
         if st:
