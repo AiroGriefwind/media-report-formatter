@@ -909,6 +909,8 @@ def _fill_tag_editor_keyword(driver, container, keyword: str, st_module=None):
                       const txt = (tag.textContent || '').replace(/\\s+/g, '');
                       if (txt.indexOf(kw) !== -1) return true;
                     }
+                    const placeholder = root.querySelector('li.placeholder');
+                    if (placeholder) return false;
                     return false;
                     """,
                     container,
@@ -982,6 +984,28 @@ def _fill_tag_editor_keyword(driver, container, keyword: str, st_module=None):
         if st_module:
             st_module.warning(f"输入搜索关键词失败: {e}")
     return False
+
+
+def _debug_tag_editor_state(driver, container):
+    """Return a small snapshot of tag-editor state for debugging."""
+    try:
+        return driver.execute_script(
+            """
+            const root = arguments[0];
+            const hidden = root.querySelector('textarea.tag-editor-hidden-src');
+            const tags = Array.from(root.querySelectorAll('li.tag-editor-tag'))
+              .map(n => (n.textContent || '').trim()).filter(Boolean);
+            const hasPlaceholder = !!root.querySelector('li.placeholder');
+            return {
+              hiddenValue: hidden ? hidden.value : '',
+              tags: tags,
+              hasPlaceholder: hasPlaceholder
+            };
+            """,
+            container,
+        )
+    except Exception:
+        return {}
 
 
 def _set_checkbox_state(driver, checkbox_el, should_check: bool):
@@ -1506,9 +1530,18 @@ def search_title_from_home(**kwargs):
     editor_container = home_panel.find_element(By.CSS_SELECTOR, "div.app-query-tageditor-instance")
     _clear_tag_editor(driver, editor_container, st_module=st)
     if not _fill_tag_editor_keyword(driver, editor_container, keyword, st_module=st):
+        state = _debug_tag_editor_state(driver, editor_container)
+        if st:
+            st.warning(f"关键词写入失败，tag-editor 状态：{state}")
         raise Exception("搜索关键词未写入 tag-editor。")
 
     dismiss_blocking_modals(driver, wait=wait, st_module=st)
+    try:
+        inject_cjk_font_css(driver, st_module=st)
+        if st:
+            st.image(driver.get_screenshot_as_png(), caption="🔎 已写入关键词（点击搜索前）")
+    except Exception:
+        pass
     search_button = wait_for_enabled_search_button(driver, timeout=10, st_module=st)
     search_button.click()
     return True
@@ -1555,9 +1588,18 @@ def search_title_via_edit_search_modal(**kwargs):
 
     _clear_tag_editor(driver, editor_container, st_module=st)
     if not _fill_tag_editor_keyword(driver, editor_container, keyword, st_module=st):
+        state = _debug_tag_editor_state(driver, editor_container)
+        if st:
+            st.warning(f"关键词写入失败，tag-editor 状态：{state}")
         raise Exception("搜索关键词未写入 tag-editor。")
 
     dismiss_blocking_modals(driver, wait=wait, st_module=st, keep_selectors=["button.edit-search-button-track"])
+    try:
+        inject_cjk_font_css(driver, st_module=st)
+        if st:
+            st.image(driver.get_screenshot_as_png(), caption="🔎 已写入关键词（点击搜索前）")
+    except Exception:
+        pass
     modal_search_btn.click()
     time.sleep(1.5)
     return True
