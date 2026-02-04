@@ -24,6 +24,7 @@ from utils.wisers_utils import (
     search_title_via_edit_search_modal,
     set_media_filters_in_panel,
     set_keyword_scope_checkboxes,
+    inject_cjk_font_css,
     scroll_to_load_all_content,
     wait_for_ajax_complete,
 )
@@ -152,6 +153,7 @@ def run_keyword_search_task(
     screenshot_dir=None,
 ):
     _apply_search_filters(driver, wait, st_module, include_content)
+    inject_cjk_font_css(driver, st_module=st_module)
     if st_module:
         try:
             st_module.image(

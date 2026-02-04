@@ -977,6 +977,32 @@ def _label_text_for_checkbox(driver, checkbox_el):
     return ""
 
 
+def inject_cjk_font_css(driver, st_module=None):
+    """Inject a CJK-capable font stack for clearer screenshots."""
+    if not driver:
+        return False
+    try:
+        driver.execute_script(
+            """
+            (function() {
+              var id = 'cursor-cjk-font-style';
+              if (document.getElementById(id)) { return; }
+              var style = document.createElement('style');
+              style.id = id;
+              style.type = 'text/css';
+              style.textContent = "@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600&display=swap');"
+                + "html, body, * { font-family: 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', 'Noto Sans CJK TC', 'Noto Sans CJK SC', sans-serif !important; }";
+              document.head.appendChild(style);
+            })();
+            """
+        )
+        return True
+    except Exception as e:
+        if st_module:
+            st_module.warning(f"注入中文字體失敗: {e}")
+        return False
+
+
 @retry_step
 def set_media_filters_in_panel(**kwargs):
     """
