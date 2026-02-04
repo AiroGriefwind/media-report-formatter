@@ -72,7 +72,35 @@ def run_saved_search_task(**kwargs):
         try:
             target_item = wait.until(
                 EC.element_to_be_clickable((By.XPATH, f"//ul[@class='list-group']//h5[text()='{saved_search_name}']/ancestor::li")))
-            target_item.click()
+            # Prefer clicking an explicit "apply/use" button within the item if available
+            clicked = False
+            try:
+                apply_buttons = target_item.find_elements(
+                    By.XPATH,
+                    ".//button[contains(., '搜尋') or contains(., '搜索') or contains(., 'Search')"
+                    " or contains(., '套用') or contains(., '应用') or contains(., 'Apply')"
+                    " or contains(., '確定') or contains(., '确定')]",
+                )
+                if apply_buttons:
+                    apply_buttons[0].click()
+                    clicked = True
+            except Exception:
+                clicked = False
+
+            if not clicked:
+                try:
+                    use_btns = target_item.find_elements(
+                        By.CSS_SELECTOR,
+                        "button.btn-primary, a.btn-primary, button[title*='使用'], button[title*='套用'], button[title*='Apply']",
+                    )
+                    if use_btns:
+                        use_btns[0].click()
+                        clicked = True
+                except Exception:
+                    clicked = False
+
+            if not clicked:
+                target_item.click()
             time.sleep(3)
 
             if st:
@@ -103,25 +131,55 @@ def run_saved_search_task(**kwargs):
             meta["no_results"] = True
             return ([], meta) if return_meta else []
 
-        # Click search button
+        # Click search/apply button (avoid "close/cancel" buttons)
         search_btn = None
-        selectors = [(By.CSS_SELECTOR, "div.modal-footer .btn-default:last-child"),
-                    (By.XPATH, "//div[@class='modal-footer']//button[text()='搜索']")]
+        try:
+            modal = driver.find_element(By.CSS_SELECTOR, "#modal-saved-search-ws6")
+            footer_buttons = modal.find_elements(By.CSS_SELECTOR, ".modal-footer button, .modal-footer a")
+            positive_keywords = ["搜索", "搜尋", "search", "套用", "应用", "apply", "確定", "确定", "ok"]
+            negative_keywords = ["取消", "關閉", "关闭", "close", "cancel"]
 
-        for selector_type, selector in selectors:
-            try:
-                search_btn = wait.until(EC.element_to_be_clickable((selector_type, selector)))
-                break
-            except TimeoutException:
-                continue
+            def _score(btn):
+                try:
+                    txt = (btn.text or "").strip().lower()
+                except Exception:
+                    txt = ""
+                has_positive = any(k in txt for k in positive_keywords)
+                has_negative = any(k in txt for k in negative_keywords)
+                is_primary = "btn-primary" in (btn.get_attribute("class") or "")
+                return (has_positive, is_primary, not has_negative)
+
+            candidates = [b for b in footer_buttons if b.is_displayed()]
+            # Prefer positive keyword + primary
+            candidates.sort(key=_score, reverse=True)
+            for btn in candidates:
+                try:
+                    txt = (btn.text or "").strip().lower()
+                except Exception:
+                    txt = ""
+                if any(k in txt for k in negative_keywords):
+                    continue
+                if any(k in txt for k in positive_keywords) or "btn-primary" in (btn.get_attribute("class") or ""):
+                    search_btn = btn
+                    break
+        except Exception:
+            search_btn = None
 
         if search_btn:
             search_btn.click()
         else:
+            # Fallback JS click by text (both simplified/traditional)
             driver.execute_script("""
-                var buttons = document.querySelectorAll('div.modal-footer button');
+                var buttons = document.querySelectorAll('#modal-saved-search-ws6 .modal-footer button, #modal-saved-search-ws6 .modal-footer a');
+                var positives = ['搜索','搜尋','Search','套用','应用','Apply','確定','确定','OK'];
+                var negatives = ['取消','關閉','关闭','Close','Cancel'];
                 for (var i = 0; i < buttons.length; i++) {
-                    if (buttons[i].textContent.trim() === '搜索') {
+                    var txt = (buttons[i].textContent || '').trim();
+                    if (!txt) continue;
+                    var hasPos = positives.some(function(k){ return txt.indexOf(k) >= 0; });
+                    var hasNeg = negatives.some(function(k){ return txt.indexOf(k) >= 0; });
+                    if (hasNeg) continue;
+                    if (hasPos || buttons[i].className.indexOf('btn-primary') >= 0) {
                         buttons[i].click(); break;
                     }
                 }""")
