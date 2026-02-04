@@ -928,6 +928,152 @@ def _fill_tag_editor_keyword(driver, container, keyword: str, st_module=None):
     return False
 
 
+def _set_checkbox_state(driver, checkbox_el, should_check: bool):
+    """Ensure a checkbox element matches the desired state."""
+    try:
+        current = checkbox_el.is_selected()
+    except Exception:
+        current = None
+    if current is None or current != should_check:
+        try:
+            driver.execute_script("arguments[0].click();", checkbox_el)
+        except Exception:
+            try:
+                checkbox_el.click()
+            except Exception:
+                return False
+    return True
+
+
+def _label_text_for_checkbox(driver, checkbox_el):
+    """Best-effort label text lookup for a checkbox."""
+    try:
+        label = checkbox_el.find_element(By.XPATH, "./ancestor::label[1]")
+        txt = (label.text or "").strip()
+        if txt:
+            return txt
+    except Exception:
+        pass
+
+    try:
+        input_id = checkbox_el.get_attribute("id")
+        if input_id:
+            labels = driver.find_elements(By.CSS_SELECTOR, f"label[for='{input_id}']")
+            if labels:
+                txt = (labels[0].text or "").strip()
+                if txt:
+                    return txt
+    except Exception:
+        pass
+
+    try:
+        parent = checkbox_el.find_element(By.XPATH, "./parent::*")
+        txt = (parent.text or "").strip()
+        if txt:
+            return txt
+    except Exception:
+        pass
+
+    return ""
+
+
+@retry_step
+def set_media_filters_in_panel(**kwargs):
+    """
+    In the "媒体/作者" panel, uncheck all and keep only specified labels.
+    keep_labels: list[str] of label texts to keep checked.
+    container_selector: optional CSS selector to scope the checkbox search.
+    """
+    driver = kwargs.get("driver")
+    wait = kwargs.get("wait")
+    st = kwargs.get("st_module")
+    keep_labels = set((kwargs.get("keep_labels") or []))
+    container_selector = kwargs.get("container_selector")
+
+    try:
+        panel = driver.find_element(By.CSS_SELECTOR, "#accordion-queryfilter .panel-queryfilter-scope-publisher")
+        collapse = panel.find_element(By.CSS_SELECTOR, ".panel-collapse")
+        if "in" not in (collapse.get_attribute("class") or ""):
+            try:
+                heading = panel.find_element(By.CSS_SELECTOR, ".panel-heading")
+                driver.execute_script("arguments[0].click();", heading)
+                time.sleep(0.6)
+            except Exception:
+                pass
+    except Exception:
+        panel = None
+
+    container = None
+    if container_selector:
+        candidates = driver.find_elements(By.CSS_SELECTOR, container_selector)
+        if candidates:
+            container = candidates[0]
+    if not container and panel:
+        container = panel
+
+    if not container:
+        if st:
+            st.warning("未找到媒體/作者篩選區域，將跳過篩選設定。")
+        return False
+
+    checkboxes = container.find_elements(By.CSS_SELECTOR, "input[type='checkbox']")
+    if not checkboxes:
+        if st:
+            st.warning("媒體/作者篩選區域沒有找到勾選框。")
+        return False
+
+    updated = 0
+    for cb in checkboxes:
+        label_text = _label_text_for_checkbox(driver, cb)
+        if not label_text:
+            continue
+        should_check = label_text in keep_labels
+        if _set_checkbox_state(driver, cb, should_check):
+            updated += 1
+
+    if st:
+        st.write(f"✅ 已更新媒體/作者勾選框：保留 {', '.join(sorted(keep_labels))}")
+    return updated > 0
+
+
+@retry_step
+def set_keyword_scope_checkboxes(**kwargs):
+    """Set keyword scope checkboxes: title/content."""
+    driver = kwargs.get("driver")
+    st = kwargs.get("st_module")
+    title_checked = bool(kwargs.get("title_checked", True))
+    content_checked = bool(kwargs.get("content_checked", True))
+
+    targets = [
+        ("標題", title_checked),
+        ("內文", content_checked),
+    ]
+
+    changed = 0
+    for label_text, should_check in targets:
+        label_el = None
+        checkbox_el = None
+        try:
+            label_el = driver.find_element(
+                By.XPATH,
+                f"//label[.//input[@type='checkbox'] and contains(normalize-space(.), '{label_text}')]",
+            )
+            checkbox_el = label_el.find_element(By.CSS_SELECTOR, "input[type='checkbox']")
+        except Exception:
+            checkbox_el = None
+
+        if checkbox_el:
+            if _set_checkbox_state(driver, checkbox_el, should_check):
+                changed += 1
+        else:
+            if st:
+                st.warning(f"未找到『{label_text}』勾選框。")
+
+    if st:
+        st.write(f"✅ 已更新關鍵詞位置：標題={title_checked}, 內文={content_checked}")
+    return changed > 0
+
+
 @retry_step
 def search_title_from_home(**kwargs):
     """On /wevo/home, input a title in the main search box and execute search."""
