@@ -339,6 +339,30 @@ def _handle_keyword_search_news_logic(config, group_name, username, password, ap
             st.rerun()
         return
 
+    if st.session_state[stage_key] == "await_sort_confirm":
+        st.header("✅ 預覽完成，等待確認")
+        st.info("已完成登出並釋放 Session。確認後再進入 50% 用戶排序界面。")
+        col_left, col_right = st.columns([0.6, 0.4])
+        with col_left:
+            if st.button(
+                "👤 進入用戶排序（50%進度）",
+                type="primary",
+                use_container_width=True,
+                key=f"{prefix}-confirm-sort",
+            ):
+                st.session_state[stage_key] = "ui_sorting"
+                st.rerun()
+        with col_right:
+            if st.button(
+                "↩️ 返回進度頁",
+                type="secondary",
+                use_container_width=True,
+                key=f"{prefix}-confirm-sort-back",
+            ):
+                st.session_state[stage_key] = "smart_home"
+                st.rerun()
+        return
+
     try:
         if st.session_state[stage_key] == "init":
             _render_keyword_controls(prefix)
@@ -455,8 +479,9 @@ def _handle_keyword_search_news_logic(config, group_name, username, password, ap
 
                     st.session_state[f"{prefix}_pool_dict"] = grouped_data
                     st.session_state[f"{prefix}_sorted_dict"] = {category_label: []}
-                    st.session_state[stage_key] = "ui_sorting"
-                    st.rerun()
+                    st.session_state[stage_key] = "await_sort_confirm"
+                    st.info("✅ 預覽已完成並完成登出。請確認後進入 50% 用戶排序。")
+                    return
 
         if st.session_state[stage_key] == "ui_sorting":
             st.header("📱 新聞排序與篩選")
@@ -625,9 +650,19 @@ def _handle_keyword_search_news_logic(config, group_name, username, password, ap
 
                             if idx == 0:
                                 _apply_search_filters(driver, wait, st, include_content)
-                                search_title_from_home(driver=driver, wait=wait, keyword=title, st_module=st)
+                                search_title_from_home(
+                                    driver=driver,
+                                    wait=wait,
+                                    keyword=title,
+                                    st_module=st,
+                                )
                             else:
-                                search_title_via_edit_search_modal(driver=driver, wait=wait, keyword=title, st_module=st)
+                                search_title_via_edit_search_modal(
+                                    driver=driver,
+                                    wait=wait,
+                                    keyword=title,
+                                    st_module=st,
+                                )
 
                             has_results = wait_for_search_results(driver=driver, wait=wait, st_module=st)
                             if not has_results:

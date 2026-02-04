@@ -39,6 +39,7 @@ def retry_step(func):
         st = kwargs.get('st_module')
         driver = kwargs.get('driver')
         logger = kwargs.get("logger")
+        robust_logout_on_failure = kwargs.get("robust_logout_on_failure", True)
         screenshot_dir = kwargs.get("screenshot_dir") or os.getenv("WISERS_SCREENSHOT_DIR") or os.path.join(".", "artifacts", "screenshots")
         retry_limit = 3
         
@@ -136,20 +137,21 @@ def retry_step(func):
                         except Exception:
                             pass
                     
-                    # Robust logout on final failure
-                    try:
-                        if driver:
-                            robust_logout_request(driver=driver, st_module=st)
-                        elif st:
-                            st.warning("Driver not available for robust logout request.")
-                    except Exception as logout_err:
-                        if st:
-                            st.warning(f"Robust logout request failed: {logout_err}")
-                        if logger and hasattr(logger, "warn"):
-                            try:
-                                logger.warn("Robust logout request failed", error=str(logout_err))
-                            except Exception:
-                                pass
+                    # Robust logout on final failure (optional)
+                    if robust_logout_on_failure:
+                        try:
+                            if driver:
+                                robust_logout_request(driver=driver, st_module=st)
+                            elif st:
+                                st.warning("Driver not available for robust logout request.")
+                        except Exception as logout_err:
+                            if st:
+                                st.warning(f"Robust logout request failed: {logout_err}")
+                            if logger and hasattr(logger, "warn"):
+                                try:
+                                    logger.warn("Robust logout request failed", error=str(logout_err))
+                                except Exception:
+                                    pass
                     
                     raise Exception(f"Step {func.__name__} failed after {retry_limit} attempts.")
     return wrapper
@@ -893,6 +895,29 @@ def _fill_tag_editor_keyword(driver, container, keyword: str, st_module=None):
     if not keyword:
         return False
 
+    def _has_keyword():
+        try:
+            return bool(
+                driver.execute_script(
+                    """
+                    const root = arguments[0];
+                    const kw = arguments[1];
+                    const hidden = root.querySelector('textarea.tag-editor-hidden-src');
+                    if (hidden && hidden.value && hidden.value.indexOf(kw) !== -1) return true;
+                    const tags = root.querySelectorAll('li.tag-editor-tag');
+                    for (const tag of tags) {
+                      const txt = (tag.textContent || '').replace(/\\s+/g, '');
+                      if (txt.indexOf(kw) !== -1) return true;
+                    }
+                    return false;
+                    """,
+                    container,
+                    keyword,
+                )
+            )
+        except Exception:
+            return False
+
     # First try: visible tag-editor input
     try:
         inputs = container.find_elements(By.CSS_SELECTOR, "input.tag-editor-input")
@@ -901,7 +926,8 @@ def _fill_tag_editor_keyword(driver, container, keyword: str, st_module=None):
             inputs[0].clear()
             inputs[0].send_keys(keyword)
             inputs[0].send_keys(Keys.ENTER)
-            return True
+            if _has_keyword():
+                return True
     except Exception:
         pass
 
@@ -910,7 +936,33 @@ def _fill_tag_editor_keyword(driver, container, keyword: str, st_module=None):
         editor = container.find_element(By.CSS_SELECTOR, "ul.tag-editor")
         editor.click()
         ActionChains(driver).send_keys(keyword).send_keys(Keys.ENTER).perform()
-        return True
+        if _has_keyword():
+            return True
+    except Exception:
+        pass
+
+    # Try jQuery tagEditor API if available
+    try:
+        hidden = container.find_element(By.CSS_SELECTOR, "textarea.tag-editor-hidden-src")
+        ok = driver.execute_script(
+            """
+            const hidden = arguments[0];
+            const kw = arguments[1];
+            try {
+              if (window.jQuery && jQuery.fn && jQuery.fn.tagEditor) {
+                jQuery(hidden).tagEditor('addTag', kw);
+                return true;
+              }
+            } catch (e) {}
+            return false;
+            """,
+            hidden,
+            keyword,
+        )
+        if ok:
+            time.sleep(0.2)
+            if _has_keyword():
+                return True
     except Exception:
         pass
 
@@ -923,7 +975,9 @@ def _fill_tag_editor_keyword(driver, container, keyword: str, st_module=None):
             hidden,
             keyword,
         )
-        return True
+        time.sleep(0.2)
+        if _has_keyword():
+            return True
     except Exception as e:
         if st_module:
             st_module.warning(f"输入搜索关键词失败: {e}")
@@ -1451,7 +1505,8 @@ def search_title_from_home(**kwargs):
     home_panel = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div#query-instant")))
     editor_container = home_panel.find_element(By.CSS_SELECTOR, "div.app-query-tageditor-instance")
     _clear_tag_editor(driver, editor_container, st_module=st)
-    _fill_tag_editor_keyword(driver, editor_container, keyword, st_module=st)
+    if not _fill_tag_editor_keyword(driver, editor_container, keyword, st_module=st):
+        raise Exception("搜索关键词未写入 tag-editor。")
 
     dismiss_blocking_modals(driver, wait=wait, st_module=st)
     search_button = wait_for_enabled_search_button(driver, timeout=10, st_module=st)
@@ -1499,7 +1554,8 @@ def search_title_via_edit_search_modal(**kwargs):
         editor_container = modal_root
 
     _clear_tag_editor(driver, editor_container, st_module=st)
-    _fill_tag_editor_keyword(driver, editor_container, keyword, st_module=st)
+    if not _fill_tag_editor_keyword(driver, editor_container, keyword, st_module=st):
+        raise Exception("搜索关键词未写入 tag-editor。")
 
     dismiss_blocking_modals(driver, wait=wait, st_module=st, keep_selectors=["button.edit-search-button-track"])
     modal_search_btn.click()
