@@ -1270,6 +1270,48 @@ def set_media_filters_in_panel(**kwargs):
     except Exception:
         pass
 
+    # Handle dropdown label checkboxes used in media source panel
+    try:
+        result = driver.execute_script(
+            """
+            const root = arguments[0];
+            const keep = (arguments[1] || []).map(s => (s || '').replace(/\\s+/g, '').trim());
+            let changed = 0;
+            let total = 0;
+            const labels = root.querySelectorAll('label.label-dropdown');
+            const isVisible = (el) => {
+              if (!el) return false;
+              const style = window.getComputedStyle(el);
+              if (!style) return false;
+              return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+            };
+            labels.forEach(label => {
+              total += 1;
+              const span = label.querySelector('span');
+              const raw = (span && span.textContent) || label.textContent || '';
+              const txt = raw.replace(/\\s+/g, '').trim();
+              if (!txt) return;
+              const shouldCheck = keep.includes(txt);
+              const checkIcon = label.querySelector('i.wf-check-circle');
+              const isChecked = isVisible(checkIcon);
+              if (shouldCheck !== isChecked) {
+                const target = span || label;
+                target.click();
+                changed += 1;
+              }
+            });
+            return {changed: changed, total: total};
+            """,
+            container,
+            list(keep_labels),
+        )
+        if result and result.get("total"):
+            if st:
+                st.write(f"✅ 已更新媒體/作者勾選框：保留 {', '.join(sorted(keep_labels))}")
+            return bool(result.get("changed") is not None)
+    except Exception:
+        pass
+
     # Fallback to input-based checkboxes
     checkboxes = container.find_elements(By.CSS_SELECTOR, "input[type='checkbox']")
     if not checkboxes:
