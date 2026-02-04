@@ -28,6 +28,7 @@ from .wisers_utils import (
     wait_for_search_results, 
     scroll_to_load_all_content, 
     wait_for_ajax_complete,
+    wait_for_enabled_search_button,
 )
 
 from .config import WISERS_URL, MEDIA_NAME_MAPPINGS, EDITORIAL_MEDIA_ORDER, EDITORIAL_MEDIA_NAMES
@@ -167,7 +168,7 @@ def perform_author_search(**kwargs):
     author_input = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, 'input.form-control[placeholder="作者"]')))
     author_input.clear()
     author_input.send_keys(author_name)
-    search_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button#toggle-query-execute.btn.btn-primary')))
+    search_button = wait_for_enabled_search_button(driver, timeout=10, st_module=st)
     search_button.click()
 
 @retry_step
@@ -542,7 +543,7 @@ def run_scmp_editorial_task(**kwargs):
     author_input = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, 'input.form-control[placeholder="欄目"]')))
     author_input.clear()
     author_input.send_keys("editorial")
-    search_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button#toggle-query-execute.btn.btn-primary')))
+    search_button = wait_for_enabled_search_button(driver, timeout=10, st_module=st)
     search_button.click()
 
     # Scroll and wait for AJAX after search to maximize completeness

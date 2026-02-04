@@ -979,6 +979,47 @@ def _label_text_for_checkbox(driver, checkbox_el):
     return ""
 
 
+def _is_button_disabled(button_el):
+    """Check disabled state based on class/attr/aria (works with custom UI)."""
+    try:
+        cls = (button_el.get_attribute("class") or "")
+    except Exception:
+        cls = ""
+    if "disabled" in cls.split():
+        return True
+    try:
+        disabled_attr = button_el.get_attribute("disabled")
+    except Exception:
+        disabled_attr = None
+    if disabled_attr not in (None, "", "false", False):
+        return True
+    try:
+        aria_disabled = button_el.get_attribute("aria-disabled")
+    except Exception:
+        aria_disabled = None
+    if isinstance(aria_disabled, str) and aria_disabled.lower() == "true":
+        return True
+    return False
+
+
+def wait_for_enabled_search_button(driver, timeout=8, st_module=None):
+    """Wait for the main search button to be enabled (not just clickable)."""
+    def _enabled(d):
+        try:
+            btn = d.find_element(By.CSS_SELECTOR, "button#toggle-query-execute.btn.btn-primary")
+        except Exception:
+            return False
+        if _is_button_disabled(btn):
+            return False
+        return btn
+    try:
+        return WebDriverWait(driver, timeout).until(_enabled)
+    except TimeoutException:
+        if st_module:
+            st_module.warning("搜索按钮仍为灰色（disabled），搜索条件可能未设置完整。")
+        raise TimeoutException("Search button is disabled (not ready to execute).")
+
+
 def inject_cjk_font_css(driver, st_module=None):
     """Inject a CJK-capable font stack for clearer screenshots (local fonts only)."""
     if not driver:
@@ -1413,9 +1454,7 @@ def search_title_from_home(**kwargs):
     _fill_tag_editor_keyword(driver, editor_container, keyword, st_module=st)
 
     dismiss_blocking_modals(driver, wait=wait, st_module=st)
-    search_button = wait.until(
-        EC.element_to_be_clickable((By.CSS_SELECTOR, "button#toggle-query-execute.btn.btn-primary"))
-    )
+    search_button = wait_for_enabled_search_button(driver, timeout=10, st_module=st)
     search_button.click()
     return True
 
