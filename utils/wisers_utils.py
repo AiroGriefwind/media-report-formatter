@@ -978,7 +978,7 @@ def _label_text_for_checkbox(driver, checkbox_el):
 
 
 def inject_cjk_font_css(driver, st_module=None):
-    """Inject a CJK-capable font stack for clearer screenshots."""
+    """Inject a CJK-capable font stack for clearer screenshots (local fonts only)."""
     if not driver:
         return False
     try:
@@ -990,12 +990,19 @@ def inject_cjk_font_css(driver, st_module=None):
               var style = document.createElement('style');
               style.id = id;
               style.type = 'text/css';
-              style.textContent = "@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600&display=swap');"
-                + "html, body, * { font-family: 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', 'Noto Sans CJK TC', 'Noto Sans CJK SC', sans-serif !important; }";
+              style.textContent = "html, body, * { font-family: "
+                + "'Microsoft JhengHei', 'Microsoft YaHei', 'PingFang TC', 'PingFang SC', "
+                + "'Noto Sans CJK TC', 'Noto Sans CJK SC', 'SimSun', 'SimHei', sans-serif !important; }";
               document.head.appendChild(style);
             })();
             """
         )
+        try:
+            driver.execute_script(
+                "return document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();"
+            )
+        except Exception:
+            pass
         return True
     except Exception as e:
         if st_module:
@@ -1028,6 +1035,17 @@ def set_media_filters_in_panel(**kwargs):
                 pass
     except Exception:
         panel = None
+
+    # Ensure the "媒體/作者" toggle is expanded for visibility (useful for screenshots)
+    try:
+        toggle = driver.find_element(
+            By.XPATH,
+            "//div[contains(@class,'toggle-collapse') and .//span[contains(normalize-space(),'媒體/作者')]]",
+        )
+        driver.execute_script("arguments[0].click();", toggle)
+        time.sleep(0.4)
+    except Exception:
+        pass
 
     container = None
     if container_selector:
