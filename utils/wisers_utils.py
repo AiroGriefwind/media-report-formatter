@@ -1079,6 +1079,7 @@ def set_keyword_scope_checkboxes(**kwargs):
     for label_text, should_check in targets:
         label_el = None
         checkbox_el = None
+        label_only = False
         try:
             label_el = driver.find_element(
                 By.XPATH,
@@ -1088,12 +1089,39 @@ def set_keyword_scope_checkboxes(**kwargs):
         except Exception:
             checkbox_el = None
 
+        if not checkbox_el:
+            try:
+                label_el = driver.find_element(
+                    By.XPATH,
+                    f"//label[contains(@class,'checkbox-custom-label') and (@data-original-title='{label_text}' or contains(normalize-space(.), '{label_text}'))]",
+                )
+                label_only = True
+            except Exception:
+                label_el = None
+
         if checkbox_el:
             if _set_checkbox_state(driver, checkbox_el, should_check):
                 changed += 1
-        else:
-            if st:
-                st.warning(f"未找到『{label_text}』勾選框。")
+            continue
+
+        if label_only and label_el is not None:
+            try:
+                is_checked = "checked" in (label_el.get_attribute("class") or "")
+            except Exception:
+                is_checked = None
+            if is_checked is None or is_checked != should_check:
+                try:
+                    driver.execute_script("arguments[0].click();", label_el)
+                except Exception:
+                    try:
+                        label_el.click()
+                    except Exception:
+                        pass
+            changed += 1
+            continue
+
+        if st:
+            st.warning(f"未找到『{label_text}』勾選框。")
 
     if st:
         st.write(f"✅ 已更新關鍵詞位置：標題={title_checked}, 內文={content_checked}")
