@@ -152,6 +152,14 @@ def run_keyword_search_task(
     screenshot_dir=None,
 ):
     _apply_search_filters(driver, wait, st_module, include_content)
+    if st_module:
+        try:
+            st_module.image(
+                driver.get_screenshot_as_png(),
+                caption="🔎 已完成搜索设置（媒體來源 + 標題/內文）",
+            )
+        except Exception as e:
+            st_module.warning(f"截图失败：{e}")
     if use_edit_modal:
         search_title_via_edit_search_modal(
             driver=driver, wait=wait, st_module=st_module, keyword=keyword
