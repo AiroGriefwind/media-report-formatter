@@ -29,6 +29,7 @@ from .wisers_utils import (
     scroll_to_load_all_content, 
     wait_for_ajax_complete,
     wait_for_enabled_search_button,
+    inject_cjk_font_css,
 )
 
 from .config import WISERS_URL, MEDIA_NAME_MAPPINGS, EDITORIAL_MEDIA_ORDER, EDITORIAL_MEDIA_NAMES
@@ -284,6 +285,15 @@ def scrape_hover_popovers(**kwargs):
             elements = elements[:max_items]
         if st:
             st.write(f"Found {len(elements)} hoverable items on the page.")
+        if st and len(elements) == 0:
+            try:
+                inject_cjk_font_css(driver, st_module=st)
+                st.image(
+                    driver.get_screenshot_as_png(),
+                    caption="🔎 搜索结果页（未发现可悬浮条目）",
+                )
+            except Exception as e:
+                st.warning(f"搜索结果页截图失败: {e}")
 
         actions = ActionChains(driver)
 
