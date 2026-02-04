@@ -60,6 +60,7 @@ def retry_step(func):
                 # Screenshot on failure
                 if driver:
                     try:
+                        inject_cjk_font_css(driver, st_module=st)
                         img_bytes = driver.get_screenshot_as_png()
 
                         # Streamlit path (existing behavior)
@@ -567,6 +568,7 @@ def wait_for_search_results(**kwargs):
             ts = time.strftime("%Y%m%d_%H%M%S")
             fname = f"{ts}_{reason}.png"
             local_fp = os.path.join(screenshot_dir, fname)
+            inject_cjk_font_css(driver, st_module=st_module)
             img_bytes = driver.get_screenshot_as_png()
             with open(local_fp, "wb") as f:
                 f.write(img_bytes)
@@ -983,6 +985,8 @@ def inject_cjk_font_css(driver, st_module=None):
         return False
     try:
         font_b64 = None
+        font_mime = None
+        font_format = None
         if st_module is not None:
             try:
                 font_b64 = st_module.secrets.get("fonts", {}).get("cjk_base64")
@@ -1002,6 +1006,15 @@ def inject_cjk_font_css(driver, st_module=None):
                     try:
                         with open(font_path, "rb") as f:
                             font_b64 = base64.b64encode(f.read()).decode("ascii")
+                        ext = os.path.splitext(font_path)[1].lower()
+                        if ext == ".ttf":
+                            font_mime, font_format = "font/ttf", "truetype"
+                        elif ext == ".woff2":
+                            font_mime, font_format = "font/woff2", "woff2"
+                        elif ext == ".woff":
+                            font_mime, font_format = "font/woff", "woff"
+                        elif ext == ".otf":
+                            font_mime, font_format = "font/otf", "opentype"
                     except Exception:
                         font_b64 = None
         if not font_b64:
@@ -1012,24 +1025,60 @@ def inject_cjk_font_css(driver, st_module=None):
                 try:
                     with open(env_font_path, "rb") as f:
                         font_b64 = base64.b64encode(f.read()).decode("ascii")
+                    ext = os.path.splitext(env_font_path)[1].lower()
+                    if ext == ".ttf":
+                        font_mime, font_format = "font/ttf", "truetype"
+                    elif ext == ".woff2":
+                        font_mime, font_format = "font/woff2", "woff2"
+                    elif ext == ".woff":
+                        font_mime, font_format = "font/woff", "woff"
+                    elif ext == ".otf":
+                        font_mime, font_format = "font/otf", "opentype"
                 except Exception:
                     font_b64 = None
         if not font_b64:
-            for rel_path in [
+            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+            candidate_paths = [
                 os.path.join("assets", "fonts", "NotoSansCJKtc-Regular.otf"),
                 os.path.join("assets", "fonts", "NotoSansCJKsc-Regular.otf"),
                 os.path.join("assets", "fonts", "NotoSansTC-Regular.otf"),
-            ]:
+                os.path.join(repo_root, "assets", "fonts", "NotoSansCJKtc-Regular.otf"),
+                os.path.join(repo_root, "assets", "fonts", "NotoSansCJKsc-Regular.otf"),
+                os.path.join(repo_root, "assets", "fonts", "NotoSansTC-Regular.otf"),
+            ]
+            for rel_path in candidate_paths:
                 if os.path.exists(rel_path):
                     try:
                         with open(rel_path, "rb") as f:
                             font_b64 = base64.b64encode(f.read()).decode("ascii")
+                        ext = os.path.splitext(rel_path)[1].lower()
+                        if ext == ".ttf":
+                            font_mime, font_format = "font/ttf", "truetype"
+                        elif ext == ".woff2":
+                            font_mime, font_format = "font/woff2", "woff2"
+                        elif ext == ".woff":
+                            font_mime, font_format = "font/woff", "woff"
+                        elif ext == ".otf":
+                            font_mime, font_format = "font/otf", "opentype"
                         break
                     except Exception:
                         font_b64 = None
         if font_b64:
             font_b64 = font_b64.strip()
             if font_b64.startswith("data:"):
+                try:
+                    meta = font_b64.split(",", 1)[0]
+                    font_mime = meta.split(":", 1)[1].split(";", 1)[0]
+                    if "woff2" in font_mime:
+                        font_format = "woff2"
+                    elif "woff" in font_mime:
+                        font_format = "woff"
+                    elif "ttf" in font_mime or "truetype" in font_mime:
+                        font_format = "truetype"
+                    else:
+                        font_format = "opentype"
+                except Exception:
+                    pass
                 font_b64 = font_b64.split(",", 1)[-1].strip()
         driver.execute_script(
             """
@@ -1041,9 +1090,18 @@ def inject_cjk_font_css(driver, st_module=None):
               style.type = 'text/css';
               style.textContent = "";
               if (arguments[0]) {
+                var mime = arguments[1] || "font/otf";
+                var format = arguments[2] || "opentype";
+                var srcs = [];
+                srcs.push("url(data:" + mime + ";base64," + arguments[0] + ") format('" + format + "')");
+                if (format !== "truetype") {
+                  srcs.push("url(data:font/ttf;base64," + arguments[0] + ") format('truetype')");
+                }
+                if (format !== "opentype") {
+                  srcs.push("url(data:font/otf;base64," + arguments[0] + ") format('opentype')");
+                }
                 style.textContent += "@font-face { font-family: 'CJKBase64'; "
-                  + "src: url(data:font/ttf;base64," + arguments[0] + ") format('truetype'); "
-                  + "font-display: swap; }";
+                  + "src: " + srcs.join(",") + "; font-display: swap; }";
               }
               style.textContent += "html, body, * { font-family: "
                 + (arguments[0] ? "'CJKBase64'," : "")
@@ -1054,10 +1112,20 @@ def inject_cjk_font_css(driver, st_module=None):
             """
             ,
             font_b64,
+            font_mime,
+            font_format,
         )
         try:
-            driver.execute_script(
-                "return document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();"
+            driver.execute_async_script(
+                """
+                var callback = arguments[arguments.length - 1];
+                if (document.fonts && document.fonts.ready) {
+                    document.fonts.ready.then(function() { callback(true); })
+                        .catch(function() { callback(false); });
+                } else {
+                    callback(false);
+                }
+                """
             )
         except Exception:
             pass
