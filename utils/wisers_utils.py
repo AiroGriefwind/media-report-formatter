@@ -987,6 +987,7 @@ def inject_cjk_font_css(driver, st_module=None):
         font_b64 = None
         font_mime = None
         font_format = None
+        debug_font = False
         if st_module is not None:
             try:
                 font_b64 = st_module.secrets.get("fonts", {}).get("cjk_base64")
@@ -1017,8 +1018,17 @@ def inject_cjk_font_css(driver, st_module=None):
                             font_mime, font_format = "font/otf", "opentype"
                     except Exception:
                         font_b64 = None
+            try:
+                debug_font = bool(
+                    st_module.secrets.get("fonts", {}).get("cjk_debug")
+                    or st_module.secrets.get("wisers", {}).get("cjk_font_debug")
+                )
+            except Exception:
+                debug_font = False
         if not font_b64:
             font_b64 = os.getenv("CJK_FONT_BASE64")
+        if not debug_font:
+            debug_font = os.getenv("CJK_FONT_DEBUG", "").strip() in ("1", "true", "True")
         if not font_b64:
             env_font_path = os.getenv("CJK_FONT_PATH")
             if env_font_path and os.path.exists(env_font_path):
@@ -1129,6 +1139,47 @@ def inject_cjk_font_css(driver, st_module=None):
             )
         except Exception:
             pass
+        if debug_font and st_module:
+            try:
+                info = driver.execute_script(
+                    """
+                    var styleEl = document.getElementById('cursor-cjk-font-style');
+                    var bodyFont = '';
+                    try {
+                      bodyFont = window.getComputedStyle(document.body).fontFamily || '';
+                    } catch (e) {}
+                    var cspMeta = '';
+                    try {
+                      var meta = document.querySelector("meta[http-equiv='Content-Security-Policy']");
+                      cspMeta = meta ? (meta.content || '') : '';
+                    } catch (e) {}
+                    var fontsStatus = '';
+                    var fontsSize = null;
+                    try {
+                      fontsStatus = document.fonts ? document.fonts.status : '';
+                      fontsSize = document.fonts ? document.fonts.size : null;
+                    } catch (e) {}
+                    var cjkBase64Ok = false;
+                    var notoOk = false;
+                    try {
+                      cjkBase64Ok = document.fonts ? document.fonts.check("12px 'CJKBase64'") : false;
+                      notoOk = document.fonts ? document.fonts.check("12px 'Noto Sans CJK TC'") : false;
+                    } catch (e) {}
+                    return {
+                      hasStyle: !!styleEl,
+                      bodyFontFamily: bodyFont,
+                      fontsStatus: fontsStatus,
+                      fontsSize: fontsSize,
+                      cjkBase64Ok: cjkBase64Ok,
+                      notoCjkTcOk: notoOk,
+                      cspMeta: cspMeta
+                    };
+                    """
+                )
+                st_module.write("CJK字体调试信息：")
+                st_module.write(info)
+            except Exception as e:
+                st_module.warning(f"CJK字体调试失败: {e}")
         return True
     except Exception as e:
         if st_module:

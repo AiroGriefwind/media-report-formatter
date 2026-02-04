@@ -4,6 +4,7 @@ libnss3
 libgconf-2-4
 libgdk-pixbuf2.0-0
 libfontconfig1
+fonts-noto-cjk
 libx11-6
 libx11-xcb1
 libxcb1
