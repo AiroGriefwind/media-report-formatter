@@ -147,6 +147,111 @@ def _is_item_in_period(item, period_name: str) -> bool:
     return True
 
 
+def _build_preview_list_from_raw(rawlist):
+    preview_list = []
+    for i, item in enumerate(rawlist):
+        item["original_index"] = i
+        hover_html = item.get("hover_html", "")
+        item["news_id"] = extract_news_id_from_html(hover_html)
+
+        hover_text = item.get("hover_text", "")
+        if "\n" in hover_text:
+            lines = hover_text.split("\n", 2)
+            if len(lines) > 1 and lines[0].strip() == item.get("title", "").strip():
+                raw_meta = lines[1].strip()
+            else:
+                raw_meta = lines[0].strip()
+        else:
+            raw_meta = ""
+        item["formatted_metadata"] = parse_metadata(raw_meta)
+        preview_list.append(item)
+    return preview_list
+
+
+def _run_keyword_preview_with_driver(
+    driver,
+    wait,
+    st_module,
+    keyword_presets,
+    include_content,
+    max_words,
+    min_words,
+    max_articles,
+    start_from_results=False,
+):
+    is_monday = is_hkt_monday()
+    per_period_max = max(1, max_articles // 2) if is_monday else max_articles
+    periods = [("today", None)]
+    if is_monday:
+        periods.append(("yesterday", "周日"))
+
+    combined_filtered = []
+    has_run_search = bool(start_from_results)
+
+    for period_name, day_tag in periods:
+        if period_name != "today":
+            set_date_range_period(
+                driver=driver,
+                wait=wait,
+                st_module=st_module,
+                period_name=period_name,
+            )
+
+        for preset_index, keyword in enumerate(keyword_presets):
+            use_edit_modal = has_run_search or (period_name != "today") or (preset_index > 0)
+            search_meta = run_keyword_search_task(
+                driver=driver,
+                wait=wait,
+                st_module=st_module,
+                keyword=keyword,
+                include_content=include_content,
+                use_edit_modal=use_edit_modal,
+            )
+            has_run_search = True
+
+            rawlist = scrape_hover_popovers(
+                driver=driver, wait=wait, st_module=st_module, max_articles=per_period_max
+            ) or []
+            raw_count = len(rawlist)
+            for item in rawlist:
+                item["keyword_preset"] = keyword
+                item["keyword_preset_index"] = preset_index
+                if day_tag:
+                    item["day_tag"] = day_tag
+
+            if st_module:
+                st_module.info(f"✅ {period_name} 預設 {preset_index + 1} 抓取了 {raw_count} 篇懸停預覽")
+
+            filtered_rawlist = []
+            for item in rawlist:
+                hover_text = item.get("hover_text", "")
+                word_matches = re.findall(r"(\\d+)\\s*字", hover_text)
+                if word_matches:
+                    word_count = int(word_matches[0])
+                    if min_words <= word_count <= max_words:
+                        filtered_rawlist.append(item)
+                    else:
+                        if st_module:
+                            st_module.write(f"已過濾: {item.get('title', 'Unknown')} ({word_count} 字)")
+                else:
+                    filtered_rawlist.append(item)
+
+            filtered_count = len(filtered_rawlist)
+            if st_module:
+                st_module.info(f"📊 {period_name} 預設 {preset_index + 1} 字數過濾後剩餘: {filtered_count} 篇")
+
+            if search_meta.get("no_results", False):
+                st_module.warning(f"⚠️ {period_name} 預設 {preset_index + 1} 搜索结果为 0 篇。")
+            elif raw_count == 0:
+                st_module.warning(f"⚠️ {period_name} 預設 {preset_index + 1} 搜索有结果，但懸浮爬取為 0 篇。")
+            elif raw_count > 0 and filtered_count == 0:
+                st_module.warning(f"⚠️ {period_name} 預設 {preset_index + 1} 搜索有結果，但全部被字數過濾條件篩掉。")
+
+            combined_filtered.extend(filtered_rawlist)
+
+    return _build_preview_list_from_raw(combined_filtered)
+
+
 def _ensure_keyword_state(prefix: str, config):
     keyword_key = f"{prefix}_keyword_text"
     content_key = f"{prefix}_include_content"
@@ -401,6 +506,9 @@ def _handle_keyword_search_news_logic(
 
     if st.session_state[stage_key] == "await_sort_confirm":
         st.header("✅ 預覽完成，等待確認")
+        if st.session_state.get(f"{prefix}_batch_mode"):
+            st.info("已完成預覽（連續搜索模式）。確認後再進入 50% 用戶排序界面。")
+        else:
         st.info("已完成登出並釋放 Session。確認後再進入 50% 用戶排序界面。")
         col_left, col_right = st.columns([0.6, 0.4])
         with col_left:
@@ -410,6 +518,8 @@ def _handle_keyword_search_news_logic(
                 use_container_width=True,
                 key=f"{prefix}-confirm-sort",
             ):
+                if f"{prefix}_batch_mode" in st.session_state:
+                    st.session_state[f"{prefix}_batch_mode"] = False
                 st.session_state[stage_key] = "ui_sorting"
                 st.rerun()
         with col_right:
@@ -440,78 +550,17 @@ def _handle_keyword_search_news_logic(
 
                     keyword_presets = _get_keyword_presets(prefix, config)
                     include_content = bool(st.session_state.get(f"{prefix}_include_content", False))
-
-                    is_monday = is_hkt_monday()
-                    per_period_max = max(1, max_articles // 2) if is_monday else max_articles
-                    periods = [("today", None)]
-                    if is_monday:
-                        periods.append(("yesterday", "周日"))
-
-                    combined_raw = []
-                    combined_filtered = []
-                    has_run_search = False
-
-                    for period_name, day_tag in periods:
-                        if period_name != "today":
-                            set_date_range_period(
+                    preview_list = _run_keyword_preview_with_driver(
                                 driver=driver,
                                 wait=wait,
                                 st_module=st,
-                                period_name=period_name,
-                            )
-
-                        for preset_index, keyword in enumerate(keyword_presets):
-                            use_edit_modal = has_run_search or (period_name != "today") or (preset_index > 0)
-                            search_meta = run_keyword_search_task(
-                                driver=driver,
-                                wait=wait,
-                                st_module=st,
-                                keyword=keyword,
-                                include_content=include_content,
-                                use_edit_modal=use_edit_modal,
-                            )
-                            has_run_search = True
-
-                            rawlist = scrape_hover_popovers(
-                                driver=driver, wait=wait, st_module=st, max_articles=per_period_max
-                            ) or []
-                            raw_count = len(rawlist)
-                            for item in rawlist:
-                                item["keyword_preset"] = keyword
-                                item["keyword_preset_index"] = preset_index
-                                if day_tag:
-                                    item["day_tag"] = day_tag
-
-                            if st:
-                                st.info(f"✅ {period_name} 預設 {preset_index + 1} 抓取了 {raw_count} 篇懸停預覽")
-
-                            filtered_rawlist = []
-                            for item in rawlist:
-                                hover_text = item.get("hover_text", "")
-                                word_matches = re.findall(r"(\\d+)\\s*字", hover_text)
-                                if word_matches:
-                                    word_count = int(word_matches[0])
-                                    if min_words <= word_count <= max_words:
-                                        filtered_rawlist.append(item)
-                                    else:
-                                        if st:
-                                            st.write(f"已過濾: {item.get('title', 'Unknown')} ({word_count} 字)")
-                                else:
-                                    filtered_rawlist.append(item)
-
-                            filtered_count = len(filtered_rawlist)
-                            if st:
-                                st.info(f"📊 {period_name} 預設 {preset_index + 1} 字數過濾後剩餘: {filtered_count} 篇")
-
-                            if search_meta.get("no_results", False):
-                                st.warning(f"⚠️ {period_name} 預設 {preset_index + 1} 搜索结果为 0 篇。")
-                            elif raw_count == 0:
-                                st.warning(f"⚠️ {period_name} 預設 {preset_index + 1} 搜索有结果，但懸浮爬取為 0 篇。")
-                            elif raw_count > 0 and filtered_count == 0:
-                                st.warning(f"⚠️ {period_name} 預設 {preset_index + 1} 搜索有結果，但全部被字數過濾條件篩掉。")
-
-                            combined_raw.extend(rawlist)
-                            combined_filtered.extend(filtered_rawlist)
+                        keyword_presets=keyword_presets,
+                            include_content=include_content,
+                        max_words=max_words,
+                        min_words=min_words,
+                        max_articles=max_articles,
+                        start_from_results=False,
+                    )
 
                     st.info("暫時登出以釋放 Session...")
                     try:
@@ -519,26 +568,6 @@ def _handle_keyword_search_news_logic(
                     except Exception as e:
                         st.warning(f"登出時出現問題: {e}")
                     driver.quit()
-
-                    rawlist = combined_filtered
-
-                    preview_list = []
-                    for i, item in enumerate(rawlist):
-                        item["original_index"] = i
-                        hover_html = item.get("hover_html", "")
-                        item["news_id"] = extract_news_id_from_html(hover_html)
-
-                        hover_text = item.get("hover_text", "")
-                        if "\n" in hover_text:
-                            lines = hover_text.split("\n", 2)
-                            if len(lines) > 1 and lines[0].strip() == item.get("title", "").strip():
-                                raw_meta = lines[1].strip()
-                            else:
-                                raw_meta = lines[0].strip()
-                        else:
-                            raw_meta = ""
-                        item["formatted_metadata"] = parse_metadata(raw_meta)
-                        preview_list.append(item)
 
                     grouped_data = build_grouped_data(preview_list, category_label)
                     st.session_state[f"{prefix}_articles_list"] = preview_list
@@ -668,20 +697,20 @@ def _handle_keyword_search_news_logic(
                                     continue
 
                                 use_edit_modal = has_run_search or (period_name != "today") or (preset_index > 0)
-                                run_keyword_search_task(
-                                    driver=driver,
-                                    wait=wait,
-                                    st_module=st,
-                                    keyword=keyword,
-                                    include_content=include_content,
+                            run_keyword_search_task(
+                                driver=driver,
+                                wait=wait,
+                                st_module=st,
+                                keyword=keyword,
+                                include_content=include_content,
                                     use_edit_modal=use_edit_modal,
-                                )
+                            )
                                 has_run_search = True
-                                wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
-                                ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
-                                full_articles_data.extend(
+                            wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
+                            ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
+                            full_articles_data.extend(
                                     scrape_articles_by_news_id(driver, wait, period_items, st_module=st)
-                                )
+                            )
                     else:
                         full_articles_data = []
                         has_run_search = False
@@ -690,17 +719,17 @@ def _handle_keyword_search_news_logic(
                             if not preset_items:
                                 continue
                             use_edit_modal = has_run_search or (preset_index > 0)
-                            run_keyword_search_task(
-                                driver=driver,
-                                wait=wait,
-                                st_module=st,
-                                keyword=keyword,
-                                include_content=include_content,
+                        run_keyword_search_task(
+                            driver=driver,
+                            wait=wait,
+                            st_module=st,
+                            keyword=keyword,
+                            include_content=include_content,
                                 use_edit_modal=use_edit_modal,
-                            )
+                        )
                             has_run_search = True
-                            wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
-                            ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
+                        wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
+                        ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
                             full_articles_data.extend(
                                 scrape_articles_by_news_id(driver, wait, preset_items, st_module=st)
                             )
@@ -983,7 +1012,7 @@ def render_multi_keyword_search_tab():
             "base_folder": "hong_kong_keyword_search",
             "report_title": "本地新聞摘要",
             "category_label": "本地新聞",
-            "prefix": "hkkw_multi",
+            "prefix": "hkkw",
             "file_prefix": "LocalNewsKeywordReport",
             "default_keyword_text": HK_KEYWORD_DEFAULT,
         },
@@ -993,7 +1022,7 @@ def render_multi_keyword_search_tab():
             "base_folder": "international_keyword_search",
             "report_title": "國際新聞摘要",
             "category_label": "國際新聞",
-            "prefix": "intkw_multi",
+            "prefix": "intkw",
             "file_prefix": "InternationalKeywordReport",
             "default_keyword_text": INTERNATIONAL_KEYWORD_DEFAULT,
         },
@@ -1003,7 +1032,7 @@ def render_multi_keyword_search_tab():
             "base_folder": "greater_china_keyword_search",
             "report_title": "大中華新聞摘要",
             "category_label": "大中華新聞",
-            "prefix": "gckw_multi",
+            "prefix": "gckw",
             "file_prefix": "GreaterChinaKeywordReport",
             "default_keyword_text": GREATER_CHINA_KEYWORD_DEFAULT,
         },
@@ -1026,29 +1055,60 @@ def render_multi_keyword_search_tab():
         max_words = st.number_input("最多字数", min_value=50, max_value=10000, value=1000, step=50, key="multi-kw-max-words")
 
     if st.button("🚀 一鍵三板塊：抓取預覽", type="primary", use_container_width=True, key="multi-kw-start"):
-        for config in configs:
-            prefix = config["prefix"]
-            st.session_state[f"{prefix}_auto_start"] = True
-            stage_key = f"{prefix}_stage"
-            st.session_state[stage_key] = "init"
+        group_name, username, password, _bucket = _get_credentials("multi-kw")
+        api_key = _get_api_key("multi-kw")
+
+        with st.spinner("正在連續執行三個板塊的懸浮爬取..."):
+            driver = setup_webdriver(headless=run_headless, st_module=st)
+            if not driver:
+                st.error("瀏覽器啟動失敗，請重試。")
+                return
+
+            wait = WebDriverWait(driver, 20)
+            perform_login(driver=driver, wait=wait, group_name=group_name, username=username, password=password, api_key=api_key, st_module=st)
+            switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
+
+            fb_logger = st.session_state.get("fb_logger") or ensure_logger(st, run_context="multi-keyword-search")
+
+            for index, config in enumerate(configs):
+                prefix = config["prefix"]
+                base_folder = config["base_folder"]
+                category_label = config["category_label"]
+                ensure_news_session_state(fb_logger, prefix, category_label, base_folder)
+
+                keyword_presets = _get_keyword_presets(prefix, config)
+                include_content = bool(st.session_state.get(f"{prefix}_include_content", False))
+                preview_list = _run_keyword_preview_with_driver(
+                    driver=driver,
+                    wait=wait,
+                    st_module=st,
+                    keyword_presets=keyword_presets,
+                    include_content=include_content,
+                    max_words=max_words,
+                    min_words=min_words,
+                    max_articles=max_articles,
+                    start_from_results=index > 0,
+                )
+
+                grouped_data = build_grouped_data(preview_list, category_label)
+                st.session_state[f"{prefix}_articles_list"] = preview_list
+                st.session_state[f"{prefix}_pool_dict"] = grouped_data
+                st.session_state[f"{prefix}_sorted_dict"] = {category_label: []}
+                st.session_state[f"{prefix}_stage"] = "await_sort_confirm"
+                st.session_state[f"{prefix}_batch_mode"] = True
+
+                fb_logger.save_json_to_date_folder(preview_list, "preview_articles.json", base_folder=base_folder)
+                fb_logger.save_json_to_date_folder(st.session_state[f"{prefix}_sorted_dict"], "user_final_list.json", base_folder=base_folder)
+
+            st.info("三個板塊懸浮預覽完成，正在登出...")
+            try:
+                robust_logout_request(driver, st)
+            except Exception as e:
+                st.warning(f"登出時出現問題: {e}")
+            driver.quit()
+
+        st.success("✅ 三個板塊已完成連續搜索的懸浮爬取。")
         st.rerun()
 
     st.divider()
-
-    for config in configs:
-        st.markdown(f"### {config['tab_title']}")
-        group_name, username, password, _bucket = _get_credentials(config["prefix"])
-        api_key = _get_api_key(config["prefix"])
-        _handle_keyword_search_news_logic(
-            config=config,
-            group_name=group_name,
-            username=username,
-            password=password,
-            api_key=api_key,
-            run_headless=run_headless,
-            keep_browser_open=keep_browser_open,
-            max_words=max_words,
-            min_words=min_words,
-            max_articles=max_articles,
-        )
-        st.write("---")
+    st.info("完成後請切換到各板塊單獨 tab 進行排序與全文爬取。")
