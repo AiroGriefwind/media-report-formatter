@@ -236,7 +236,19 @@ def run_keyword_search_task(
     return {"no_results": True}
 
 
-def _handle_keyword_search_news_logic(config, group_name, username, password, api_key, run_headless, keep_browser_open, max_words, min_words, max_articles):
+def _handle_keyword_search_news_logic(
+    config,
+    group_name,
+    username,
+    password,
+    api_key,
+    run_headless,
+    keep_browser_open,
+    max_words,
+    min_words,
+    max_articles,
+    auto_start=False,
+):
     prefix = config["prefix"]
     base_folder = config["base_folder"]
     category_label = config["category_label"]
@@ -414,7 +426,9 @@ def _handle_keyword_search_news_logic(config, group_name, username, password, ap
     try:
         if st.session_state[stage_key] == "init":
             _render_keyword_controls(prefix, config)
-            if st.button("🚀 開始任務：抓取預覽", key=f"{prefix}-init-start"):
+            auto_start_key = f"{prefix}_auto_start"
+            auto_start_now = bool(st.session_state.pop(auto_start_key, False)) or auto_start
+            if auto_start_now or st.button("🚀 開始任務：抓取預覽", key=f"{prefix}-init-start"):
                 with st.spinner("第一步：登錄 Wisers 並抓取預覽..."):
                     driver = setup_webdriver(headless=run_headless, st_module=st)
                     if not driver:
@@ -956,3 +970,85 @@ def render_greater_china_keyword_search_tab():
         min_words=min_words,
         max_articles=max_articles,
     )
+
+
+def render_multi_keyword_search_tab():
+    st.subheader("🚦 一鍵三板塊（關鍵詞直搜）")
+    st.caption("按下後會依序執行：香港政治 ➜ 國際新聞 ➜ 大中華新聞（關鍵詞直搜）")
+
+    configs = [
+        {
+            "tab_title": "香港政治新聞（關鍵詞直搜）",
+            "header": "香港政治新聞（關鍵詞直搜）",
+            "base_folder": "hong_kong_keyword_search",
+            "report_title": "本地新聞摘要",
+            "category_label": "本地新聞",
+            "prefix": "hkkw",
+            "file_prefix": "LocalNewsKeywordReport",
+            "default_keyword_text": HK_KEYWORD_DEFAULT,
+        },
+        {
+            "tab_title": "國際新聞（關鍵詞直搜）",
+            "header": "國際新聞（關鍵詞直搜）",
+            "base_folder": "international_keyword_search",
+            "report_title": "國際新聞摘要",
+            "category_label": "國際新聞",
+            "prefix": "intkw",
+            "file_prefix": "InternationalKeywordReport",
+            "default_keyword_text": INTERNATIONAL_KEYWORD_DEFAULT,
+        },
+        {
+            "tab_title": "大中華新聞（關鍵詞直搜）",
+            "header": "大中華新聞（關鍵詞直搜）",
+            "base_folder": "greater_china_keyword_search",
+            "report_title": "大中華新聞摘要",
+            "category_label": "大中華新聞",
+            "prefix": "gckw",
+            "file_prefix": "GreaterChinaKeywordReport",
+            "default_keyword_text": GREATER_CHINA_KEYWORD_DEFAULT,
+        },
+    ]
+
+    col4, col5, col6 = st.columns(3)
+    with col4:
+        run_headless = st.checkbox("Headless 模式", value=True, key="multi-kw-headless")
+    with col5:
+        keep_browser_open = st.checkbox("任务完成后保持浏览器打开", value=False, key="multi-kw-keep-browser")
+    with col6:
+        max_articles = st.number_input("最多抓取篇数", min_value=10, max_value=120, value=60, step=10, key="multi-kw-max-articles")
+
+    st.divider()
+
+    col7, col8 = st.columns(2)
+    with col7:
+        min_words = st.number_input("最少字数", min_value=0, max_value=5000, value=200, step=50, key="multi-kw-min-words")
+    with col8:
+        max_words = st.number_input("最多字数", min_value=50, max_value=10000, value=1000, step=50, key="multi-kw-max-words")
+
+    if st.button("🚀 一鍵三板塊：抓取預覽", type="primary", use_container_width=True, key="multi-kw-start"):
+        for config in configs:
+            prefix = config["prefix"]
+            st.session_state[f"{prefix}_auto_start"] = True
+            stage_key = f"{prefix}_stage"
+            st.session_state[stage_key] = "init"
+        st.rerun()
+
+    st.divider()
+
+    for config in configs:
+        st.markdown(f"### {config['tab_title']}")
+        group_name, username, password, _bucket = _get_credentials(config["prefix"])
+        api_key = _get_api_key(config["prefix"])
+        _handle_keyword_search_news_logic(
+            config=config,
+            group_name=group_name,
+            username=username,
+            password=password,
+            api_key=api_key,
+            run_headless=run_headless,
+            keep_browser_open=keep_browser_open,
+            max_words=max_words,
+            min_words=min_words,
+            max_articles=max_articles,
+        )
+        st.write("---")

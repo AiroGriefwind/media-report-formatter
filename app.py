@@ -15,6 +15,7 @@ from tabs.hong_kong_keyword_search import (
     render_hong_kong_keyword_search_tab,
     render_international_keyword_search_tab,
     render_greater_china_keyword_search_tab,
+    render_multi_keyword_search_tab,
 )
 
 def get_app_title():
@@ -47,7 +48,7 @@ def main():
     st.markdown("Choose between document formatting or web scraping functionality")
     
     # Create tabs
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
         "📄 Document Formatting", 
         "🌐 Web Scraping & Reporting", 
         "🌍 International News",
@@ -57,6 +58,7 @@ def main():
         "🇭🇰 香港政治（關鍵詞直搜）",
         "🌍 國際新聞（關鍵詞直搜）",
         "🀄 大中華新聞（關鍵詞直搜）",
+        "🚦 一鍵三板塊（關鍵詞直搜）",
     ])
     
     # Render each tab
@@ -86,6 +88,9 @@ def main():
 
     with tab9:
         render_greater_china_keyword_search_tab()
+
+    with tab10:
+        render_multi_keyword_search_tab()
 
 def _check_secrets_configuration():
     """Check if secrets are configured and show appropriate warnings"""
