@@ -618,6 +618,20 @@ def wait_for_search_results(**kwargs):
 
     def _confirm_no_results() -> bool:
         return _results_are_empty() or _detect_no_article_banner()
+
+    def _has_result_items() -> bool:
+        for selector in result_selectors:
+            if driver.find_elements(By.CSS_SELECTOR, selector):
+                return True
+        return False
+
+    def _has_any_results_container() -> bool:
+        return bool(
+            driver.find_elements(
+                By.CSS_SELECTOR,
+                "div.list-group, div.list-article, div.tabpanel-content, div.list-group-item",
+            )
+        )
     
     try:
         wait.until(EC.presence_of_element_located((
@@ -636,12 +650,17 @@ def wait_for_search_results(**kwargs):
         '.article-main'
     ]
     
-    for selector in result_selectors:
-        if driver.find_elements(By.CSS_SELECTOR, selector):
-            # Guard: if tabs are all zero, treat as no results
-            if _confirm_no_results():
-                _log_warn("ℹ️ Detected results markup but tab counters are all 0. Verifying...")
-                break
+    # Ensure results panel has finished loading (preloader gone)
+    try:
+        wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st_module, timeout=20)
+    except Exception:
+        pass
+
+    if _has_result_items():
+        # Guard: if tabs are all zero, treat as no results
+        if _confirm_no_results():
+            _log_warn("ℹ️ Detected results markup but tab counters are all 0. Verifying...")
+        else:
             _log_info("✅ Search results found.")
             return True
     
@@ -649,18 +668,28 @@ def wait_for_search_results(**kwargs):
     end_time = time.time() + max(0, loading_grace_seconds)
     last_logged = 0
     while time.time() <= end_time:
-        for selector in result_selectors:
-            if driver.find_elements(By.CSS_SELECTOR, selector):
-                _log_info("✅ Search results found.")
-                return True
+        try:
+            wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st_module, timeout=10)
+        except Exception:
+            pass
+
+        # Attempt to switch tabs if results exist but not visible
+        if not _has_result_items() and _has_any_results_container():
+            try:
+                ensure_results_list_visible(driver=driver, wait=wait, st_module=st_module)
+            except Exception:
+                pass
+
+        if _has_result_items():
+            _log_info("✅ Search results found.")
+            return True
 
         if _confirm_no_results():
             _log_warn("ℹ️ No-article signal detected, verifying once more...")
             time.sleep(max(0, verify_no_results_wait))
-            for selector in result_selectors:
-                if driver.find_elements(By.CSS_SELECTOR, selector):
-                    _log_info("✅ Results appeared after verification wait.")
-                    return True
+            if _has_result_items():
+                _log_info("✅ Results appeared after verification wait.")
+                return True
             if _confirm_no_results():
                 _log_warn("ℹ️ No results confirmed for this query.")
                 _save_search_screenshot("no_results_confirmed")
@@ -679,6 +708,7 @@ def wait_for_search_results(**kwargs):
         return False
 
     # Ambiguous state
+    _save_search_screenshot("results_ambiguous")
     raise Exception("Search page loaded, but content was unrecognized.")
 
 @retry_step
