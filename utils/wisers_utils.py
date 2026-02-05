@@ -869,6 +869,31 @@ def wait_for_results_panel_ready(driver, wait=None, st_module=None, timeout=20):
                 )
         except Exception:
             pass
+        # Wait for top progress bar to finish (if present)
+        try:
+            def _progress_done(d):
+                bars = d.find_elements(By.CSS_SELECTOR, "div.progress.progress__pageTop")
+                if not bars:
+                    return True
+                bar = bars[0]
+                cls = (bar.get_attribute("class") or "")
+                if "hide" in cls.split():
+                    return True
+                inner = None
+                try:
+                    inner = bar.find_element(By.CSS_SELECTOR, "div.progress-bar")
+                except Exception:
+                    inner = None
+                if inner is None:
+                    return False
+                inner_cls = (inner.get_attribute("class") or "")
+                style = (inner.get_attribute("style") or "").replace(" ", "")
+                if "mode-completed" in inner_cls and ("width:0" in style or "width:0%;" in style):
+                    return True
+                return False
+            WebDriverWait(driver, timeout).until(_progress_done)
+        except Exception:
+            pass
         # Ensure actual content container appears
         try:
             WebDriverWait(driver, timeout).until(
