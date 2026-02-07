@@ -109,7 +109,11 @@ def retry_step(func):
                                 # Prefer run-scoped folder if available
                                 session_id = getattr(up_logger, "session_id", "cli")
                                 run_id = getattr(up_logger, "run_id", "run")
-                                remote_path = f"runs/{session_id}/{run_id}/screens/{fname}"
+                                if hasattr(up_logger, "run_storage_dir"):
+                                    run_dir = up_logger.run_storage_dir()
+                                else:
+                                    run_dir = f"runs/{session_id}/{run_id}"
+                                remote_path = f"{run_dir}/screens/{fname}"
                                 gs_url = up_logger.upload_file_to_firebase(local_fp, remote_path)
                                 if logger and hasattr(logger, "info"):
                                     logger.info("Uploaded failure screenshot", gs_url=gs_url, local_fp=local_fp)
@@ -576,6 +580,14 @@ def wait_for_search_results(**kwargs):
                 f.write(img_bytes)
             if st_module:
                 st_module.image(img_bytes, caption=f"{reason} screenshot")
+            try:
+                up_logger = logger
+                if not up_logger and st_module:
+                    up_logger = get_logger(st_module)
+                if up_logger and hasattr(up_logger, "upload_screenshot_bytes"):
+                    up_logger.upload_screenshot_bytes(img_bytes, filename=fname)
+            except Exception:
+                pass
             return local_fp
         except Exception:
             return None
@@ -1580,6 +1592,12 @@ def search_title_from_home(**kwargs):
     wait = kwargs.get('wait')
     st = kwargs.get('st_module')
     keyword = kwargs.get('keyword')
+    logger = kwargs.get("logger")
+    screenshot_dir = (
+        kwargs.get("screenshot_dir")
+        or os.getenv("WISERS_SCREENSHOT_DIR")
+        or os.path.join(".", "artifacts", "screenshots")
+    )
 
     home_panel = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div#query-instant")))
     editor_container = home_panel.find_element(By.CSS_SELECTOR, "div.app-query-tageditor-instance")
@@ -1594,7 +1612,20 @@ def search_title_from_home(**kwargs):
     try:
         inject_cjk_font_css(driver, st_module=st)
         if st:
-            st.image(driver.get_screenshot_as_png(), caption="🔎 已写入关键词（点击搜索前）")
+            img_bytes = driver.get_screenshot_as_png()
+            st.image(img_bytes, caption="🔎 已写入关键词（点击搜索前）")
+            try:
+                os.makedirs(screenshot_dir, exist_ok=True)
+                ts = time.strftime("%Y%m%d_%H%M%S")
+                fname = f"{ts}_search_ready.png"
+                local_fp = os.path.join(screenshot_dir, fname)
+                with open(local_fp, "wb") as f:
+                    f.write(img_bytes)
+                up_logger = logger or (get_logger(st) if st else None)
+                if up_logger and hasattr(up_logger, "upload_screenshot_bytes"):
+                    up_logger.upload_screenshot_bytes(img_bytes, filename=fname)
+            except Exception:
+                pass
     except Exception:
         pass
     search_button = wait_for_enabled_search_button(driver, timeout=10, st_module=st)
@@ -1609,6 +1640,12 @@ def search_title_via_edit_search_modal(**kwargs):
     wait = kwargs.get('wait')
     st = kwargs.get('st_module')
     keyword = kwargs.get('keyword')
+    logger = kwargs.get("logger")
+    screenshot_dir = (
+        kwargs.get("screenshot_dir")
+        or os.getenv("WISERS_SCREENSHOT_DIR")
+        or os.path.join(".", "artifacts", "screenshots")
+    )
 
     dismiss_blocking_modals(driver, wait=wait, st_module=st)
     modal_search_btn = None
@@ -1652,7 +1689,20 @@ def search_title_via_edit_search_modal(**kwargs):
     try:
         inject_cjk_font_css(driver, st_module=st)
         if st:
-            st.image(driver.get_screenshot_as_png(), caption="🔎 已写入关键词（点击搜索前）")
+            img_bytes = driver.get_screenshot_as_png()
+            st.image(img_bytes, caption="🔎 已写入关键词（点击搜索前）")
+            try:
+                os.makedirs(screenshot_dir, exist_ok=True)
+                ts = time.strftime("%Y%m%d_%H%M%S")
+                fname = f"{ts}_search_ready_modal.png"
+                local_fp = os.path.join(screenshot_dir, fname)
+                with open(local_fp, "wb") as f:
+                    f.write(img_bytes)
+                up_logger = logger or (get_logger(st) if st else None)
+                if up_logger and hasattr(up_logger, "upload_screenshot_bytes"):
+                    up_logger.upload_screenshot_bytes(img_bytes, filename=fname)
+            except Exception:
+                pass
     except Exception:
         pass
     modal_search_btn.click()

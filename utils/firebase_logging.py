@@ -9,6 +9,7 @@ import tempfile  # ✅ 新增
 import firebase_admin
 from firebase_admin import credentials, db, storage
 from datetime import datetime
+import time
 
 HKT = pytz.timezone('Asia/Hong_Kong')
 TODAY = datetime.now(HKT).strftime("%Y%m%d")
@@ -40,6 +41,7 @@ class FirebaseLogger:
         self.run_ref = None     # Points to this run's root
         self.run_id = None
         self.session_id = _get_or_create_session_id(st)
+        self._last_log_upload_ts = 0.0
 
         if "firebase" in st.secrets:
             svc_dict = dict(st.secrets["firebase"]["service_account"])
@@ -82,6 +84,8 @@ class FirebaseLogger:
             # Set up gs bucket as before
             self.bucket = storage.bucket(app=app)
 
+    def run_storage_dir(self) -> str:
+        return f"runs/{_today_hkt_str()}/{self.run_id}"
 
     def info(self, msg, **extra):
         self._event("INFO", msg, extra)
@@ -193,25 +197,63 @@ class FirebaseLogger:
             json.dump(self.local_log_events, f, ensure_ascii=False, indent=2)
         return fp
 
+    def upload_log_events_json(self, filename="streamlit_logs.json"):
+        if not self.bucket:
+            return None
+        payload = json.dumps(self.local_log_events, ensure_ascii=False, indent=2)
+        run_dir = self.run_storage_dir()
+        remote_path = f"{run_dir}/logs/{filename}"
+        blob = self.bucket.blob(remote_path)
+        blob.upload_from_string(payload, content_type="application/json")
+        return f"gs://{self.bucket.name}/{remote_path}"
+
+    def flush_logs_to_firebase(self, force=False, min_interval=8):
+        if not self.bucket:
+            return None
+        now = time.time()
+        if not force and (now - self._last_log_upload_ts) < min_interval:
+            return None
+        self._last_log_upload_ts = now
+        try:
+            return self.upload_log_events_json()
+        except Exception:
+            return None
+
+    def upload_screenshot_bytes(self, img_bytes, filename=None, subdir="screens"):
+        if not self.bucket:
+            return None
+        ts = dt.datetime.now(HKT).strftime("%Y%m%d_%H%M%S")
+        fname = filename or f"{ts}_{uuid.uuid4().hex[:6]}.png"
+        run_dir = self.run_storage_dir()
+        remote_path = f"{run_dir}/{subdir}/{fname}"
+        blob = self.bucket.blob(remote_path)
+        blob.upload_from_string(img_bytes, content_type="image/png")
+        return f"gs://{self.bucket.name}/{remote_path}"
+
     def upload_scrcap_to_firebase(self, local_fp, name_hint="screenshot"):
         # Upload individual screenshot file
-        run_screens_dir = f"runs/{self.session_id}/{self.run_id}/screens/"
+        run_screens_dir = f"{self.run_storage_dir()}/screens/"
         remote_path = run_screens_dir + os.path.basename(local_fp)
         return self.upload_file_to_firebase(local_fp, remote_path)
 
     def upload_json_to_firebase(self, json_fp):
-        run_dir = f"runs/{self.session_id}/{self.run_id}/"
+        run_dir = f"{self.run_storage_dir()}/logs/"
         remote_path = run_dir + os.path.basename(json_fp)
         return self.upload_file_to_firebase(json_fp, remote_path)
 
 
-    def end_run(self, status="completed", summary=None):
+    def end_run(self, status="completed", summary=None, upload_logs=True):
         if self.run_ref:
             self.run_ref.update({
                 "ended_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
                  "status": status,
                  "summary": summary or {},
              })
+        if upload_logs:
+            try:
+                self.upload_log_events_json()
+            except Exception:
+                pass
 
 
 class FirebaseLoggerCLI:
@@ -241,6 +283,7 @@ class FirebaseLoggerCLI:
         self.run_id = now_hkt.strftime("%Y%m%dT%H%M%S") + "_" + uuid.uuid4().hex[:6]
         self.local_log_events = []
         self._init_firebase_from_env(run_context=run_context)
+        self._last_log_upload_ts = 0.0
 
     def _init_firebase_from_env(self, run_context=None):
         svc_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
@@ -315,6 +358,9 @@ class FirebaseLoggerCLI:
                 self.events_ref = None
                 self.screens_ref = None
 
+    def run_storage_dir(self) -> str:
+        return f"runs/{_today_hkt_str()}/{self.run_id}"
+
     def info(self, msg, **extra):
         self._event("INFO", msg, extra)
 
@@ -382,7 +428,17 @@ class FirebaseLoggerCLI:
             json.dump(self.local_log_events, f, ensure_ascii=False, indent=2)
         return fp
 
-    def end_run(self, status="completed", summary=None):
+    def upload_log_events_json(self, filename="cli_logs.json"):
+        if not self.bucket:
+            return None
+        payload = json.dumps(self.local_log_events, ensure_ascii=False, indent=2)
+        run_dir = self.run_storage_dir()
+        remote_path = f"{run_dir}/logs/{filename}"
+        blob = self.bucket.blob(remote_path)
+        blob.upload_from_string(payload, content_type="application/json")
+        return f"gs://{self.bucket.name}/{remote_path}"
+
+    def end_run(self, status="completed", summary=None, upload_logs=True):
         if self.run_ref:
             try:
                 self.run_ref.update({
@@ -390,6 +446,11 @@ class FirebaseLoggerCLI:
                     "status": status,
                     "summary": summary or {},
                 })
+            except Exception:
+                pass
+        if upload_logs:
+            try:
+                self.upload_log_events_json()
             except Exception:
                 pass
 
@@ -429,6 +490,10 @@ def patch_streamlit_logging(st):
                     fb.error(msg)
                 else:
                     fb.info(msg)
+                try:
+                    fb.flush_logs_to_firebase()
+                except Exception:
+                    pass
                 return fn(*args, **kwargs)
             return inner
 

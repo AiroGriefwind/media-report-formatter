@@ -271,11 +271,10 @@ def _handle_scraping_process(group_name, username, password, api_key, authors_in
             if driver:
                 if not keep_browser_open:
                     robust_logout_request(driver, st_module=st)
-                    
-                    log_dir = f"./logs/{logger.run_id}/"
-                    json_fp = logger.export_log_json(log_dir)
-                    gs_url = logger.upload_json_to_firebase(json_fp)
-                    st.info(f"Uploaded combined log JSON to Firebase: {gs_url}")
+
+                    gs_url = logger.upload_log_events_json()
+                    if gs_url:
+                        st.info(f"Uploaded combined log JSON to Firebase: {gs_url}")
 
                 else:
                     st.warning("🤖 As requested, the browser window has been left open for inspection.")

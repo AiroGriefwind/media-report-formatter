@@ -33,6 +33,7 @@ from .wisers_utils import (
 )
 
 from .config import WISERS_URL, MEDIA_NAME_MAPPINGS, EDITORIAL_MEDIA_ORDER, EDITORIAL_MEDIA_NAMES
+from utils.firebase_logging import get_logger
 
 # -----------------------------------------------------------------
 # Helper: detect the “no-article” empty-state in multiple layouts
@@ -274,6 +275,12 @@ def scrape_hover_popovers(**kwargs):
     driver = kwargs.get("driver")
     wait = kwargs.get("wait")
     st = kwargs.get("st_module")
+    logger = kwargs.get("logger")
+    screenshot_dir = (
+        kwargs.get("screenshot_dir")
+        or os.getenv("WISERS_SCREENSHOT_DIR")
+        or os.path.join(".", "artifacts", "screenshots")
+    )
     # 兼容不同调用：max_articles / max_items
     max_items = kwargs.get("max_articles", kwargs.get("max_items"))
 
@@ -288,10 +295,20 @@ def scrape_hover_popovers(**kwargs):
         if st and len(elements) == 0:
             try:
                 inject_cjk_font_css(driver, st_module=st)
-                st.image(
-                    driver.get_screenshot_as_png(),
-                    caption="🔎 搜索结果页（未发现可悬浮条目）",
-                )
+                img_bytes = driver.get_screenshot_as_png()
+                st.image(img_bytes, caption="🔎 搜索结果页（未发现可悬浮条目）")
+                try:
+                    os.makedirs(screenshot_dir, exist_ok=True)
+                    ts = time.strftime("%Y%m%d_%H%M%S")
+                    fname = f"{ts}_no_hover_items.png"
+                    local_fp = os.path.join(screenshot_dir, fname)
+                    with open(local_fp, "wb") as f:
+                        f.write(img_bytes)
+                    up_logger = logger or (get_logger(st) if st else None)
+                    if up_logger and hasattr(up_logger, "upload_screenshot_bytes"):
+                        up_logger.upload_screenshot_bytes(img_bytes, filename=fname)
+                except Exception:
+                    pass
             except Exception as e:
                 st.warning(f"搜索结果页截图失败: {e}")
 

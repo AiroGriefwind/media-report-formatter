@@ -1,4 +1,6 @@
 import re
+import os
+import time
 import streamlit as st
 
 from utils.wisers_utils import (
@@ -17,6 +19,7 @@ from utils.wisers_utils import (
 )
 from utils.web_scraping_utils import scrape_hover_popovers
 from utils import international_news_utils as intl_utils
+from utils.firebase_logging import get_logger
 
 parse_metadata = intl_utils.parse_metadata
 extract_news_id_from_html = intl_utils.extract_news_id_from_html
@@ -157,6 +160,8 @@ def _run_keyword_preview_with_driver(
 
     combined_filtered = []
     has_run_search = bool(start_from_results)
+    logger = get_logger(st_module) if st_module else None
+    screenshot_dir = os.getenv("WISERS_SCREENSHOT_DIR") or os.path.join(".", "artifacts", "screenshots")
 
     for period_name, day_tag in periods:
         if period_name != "today":
@@ -176,11 +181,18 @@ def _run_keyword_preview_with_driver(
                 keyword=keyword,
                 include_content=include_content,
                 use_edit_modal=use_edit_modal,
+                logger=logger,
+                screenshot_dir=screenshot_dir,
             )
             has_run_search = True
 
             rawlist = scrape_hover_popovers(
-                driver=driver, wait=wait, st_module=st_module, max_articles=per_period_max
+                driver=driver,
+                wait=wait,
+                st_module=st_module,
+                max_articles=per_period_max,
+                logger=logger,
+                screenshot_dir=screenshot_dir,
             ) or []
             raw_count = len(rawlist)
             for item in rawlist:
@@ -279,19 +291,42 @@ def run_keyword_search_task(
     inject_cjk_font_css(driver, st_module=st_module)
     if st_module:
         try:
+            img_bytes = driver.get_screenshot_as_png()
             st_module.image(
-                driver.get_screenshot_as_png(),
+                img_bytes,
                 caption="🔎 已完成搜索设置（媒體來源 + 標題/內文）",
             )
+            try:
+                ts = time.strftime("%Y%m%d_%H%M%S")
+                fname = f"{ts}_filters_ready.png"
+                if screenshot_dir:
+                    os.makedirs(screenshot_dir, exist_ok=True)
+                    local_fp = os.path.join(screenshot_dir, fname)
+                    with open(local_fp, "wb") as f:
+                        f.write(img_bytes)
+                if logger and hasattr(logger, "upload_screenshot_bytes"):
+                    logger.upload_screenshot_bytes(img_bytes, filename=fname)
+            except Exception:
+                pass
         except Exception as e:
             st_module.warning(f"截图失败：{e}")
     if use_edit_modal:
         search_title_via_edit_search_modal(
-            driver=driver, wait=wait, st_module=st_module, keyword=keyword
+            driver=driver,
+            wait=wait,
+            st_module=st_module,
+            keyword=keyword,
+            logger=logger,
+            screenshot_dir=screenshot_dir,
         )
     else:
         search_title_from_home(
-            driver=driver, wait=wait, st_module=st_module, keyword=keyword
+            driver=driver,
+            wait=wait,
+            st_module=st_module,
+            keyword=keyword,
+            logger=logger,
+            screenshot_dir=screenshot_dir,
         )
 
     if wait_for_search_results(

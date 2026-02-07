@@ -36,6 +36,25 @@ from .wisers_utils import (
 )
 
 
+def _xpath_literal(value: str) -> str:
+    """
+    Return a safe XPath string literal for `value`.
+    Handles single quotes by using concat().
+    """
+    if value is None:
+        return "''"
+    if "'" not in value:
+        return f"'{value}'"
+    parts = value.split("'")
+    concat_parts = []
+    for idx, part in enumerate(parts):
+        if part:
+            concat_parts.append(f"'{part}'")
+        if idx < len(parts) - 1:
+            concat_parts.append("\"'\"")
+    return "concat(" + ", ".join(concat_parts) + ")"
+
+
 @retry_step
 def run_saved_search_task(**kwargs):
     """Search for articles using a saved search name."""
@@ -872,31 +891,35 @@ def scrape_articles_by_news_id(driver, wait, articles_to_scrape, st_module=None)
                     # Normalize spaces and try exact match first
                     normalized_title = ' '.join(title.split())
                     title_links = []
+                    title_literal = _xpath_literal(normalized_title)
+                    snippet_literal = _xpath_literal(normalized_title[:30])
 
                     # Try exact match in standard headline layout
-                    xpath_exact = f"//h4[@class='list-group-item-heading']//a[normalize-space()='{normalized_title}']"
+                    xpath_exact = f"//h4[@class='list-group-item-heading']//a[normalize-space()={title_literal}]"
                     title_links = driver.find_elements(By.XPATH, xpath_exact)
 
                     if not title_links:
                         # Try contains match (for truncated titles)
                         xpath_contains = (
-                            f"//h4[@class='list-group-item-heading']//a[contains(normalize-space(), '{normalized_title[:30]}')]"
+                            f"//h4[@class='list-group-item-heading']//a[contains(normalize-space(), {snippet_literal})]"
                         )
                         title_links = driver.find_elements(By.XPATH, xpath_contains)
 
                     if not title_links:
                         # Try popover title spans
-                        xpath_popover_exact = f"//span[@rel='popover-article' and normalize-space()='{normalized_title}']"
+                        xpath_popover_exact = (
+                            f"//span[@rel='popover-article' and normalize-space()={title_literal}]"
+                        )
                         title_links = driver.find_elements(By.XPATH, xpath_popover_exact)
                         if not title_links:
                             xpath_popover_contains = (
-                                f"//span[@rel='popover-article' and contains(normalize-space(), '{normalized_title[:30]}')]"
+                                f"//span[@rel='popover-article' and contains(normalize-space(), {snippet_literal})]"
                             )
                             title_links = driver.find_elements(By.XPATH, xpath_popover_contains)
 
                     if not title_links:
                         # Try any anchor with exact title text
-                        xpath_any = f"//a[normalize-space()='{normalized_title}']"
+                        xpath_any = f"//a[normalize-space()={title_literal}]"
                         title_links = driver.find_elements(By.XPATH, xpath_any)
 
                     if title_links:

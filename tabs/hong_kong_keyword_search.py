@@ -488,6 +488,7 @@ def _handle_keyword_search_news_logic(
                                     wait=wait,
                                     keyword=title,
                                     st_module=st,
+                                    logger=fb_logger,
                                 )
                             else:
                                 search_title_via_edit_search_modal(
@@ -495,6 +496,7 @@ def _handle_keyword_search_news_logic(
                                     wait=wait,
                                     keyword=title,
                                     st_module=st,
+                                    logger=fb_logger,
                                 )
 
                             has_results = wait_for_search_results(driver=driver, wait=wait, st_module=st)
