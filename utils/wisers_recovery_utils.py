@@ -198,7 +198,12 @@ class InactivityWatchdog:
                     reason="inactivity_timeout",
                 )
                 try:
-                    _go_home_via_url(driver=self.driver, wait=self.wait, st_module=self.st_module)
+                    reset_wisers_light(
+                        driver=self.driver,
+                        wait=self.wait,
+                        st_module=self.st_module,
+                        logger=self.logger,
+                    )
                 except Exception:
                     pass
                 # Avoid repeated triggers while the main thread is still stuck

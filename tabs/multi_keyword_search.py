@@ -266,20 +266,55 @@ def render_multi_keyword_search_tab():
                 return
 
             wait = WebDriverWait(driver, 20)
-            perform_login(
-                driver=driver,
-                wait=wait,
-                group_name=group_name,
-                username=username,
-                password=password,
-                api_key=api_key,
-                st_module=st,
-            )
-            switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
-
             fb_logger = st.session_state.get("fb_logger") or ensure_logger(st, run_context="multi-keyword-search")
             watchdog = InactivityWatchdog(driver=driver, wait=wait, st_module=st, logger=fb_logger)
             watchdog.start()
+
+            try:
+                watchdog.beat()
+                perform_login(
+                    driver=driver,
+                    wait=wait,
+                    group_name=group_name,
+                    username=username,
+                    password=password,
+                    api_key=api_key,
+                    st_module=st,
+                )
+                watchdog.beat()
+                switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
+            except Exception as e:
+                if "invalid session id" in str(e).lower():
+                    st.warning("⚠️ 瀏覽器 session 失效，重啟瀏覽器並重試登入...")
+                    try:
+                        watchdog.stop()
+                    except Exception:
+                        pass
+                    try:
+                        driver.quit()
+                    except Exception:
+                        pass
+                    driver = setup_webdriver(headless=run_headless, st_module=st)
+                    if not driver:
+                        st.error("瀏覽器重啟失敗，請重試。")
+                        return
+                    wait = WebDriverWait(driver, 20)
+                    watchdog = InactivityWatchdog(driver=driver, wait=wait, st_module=st, logger=fb_logger)
+                    watchdog.start()
+                    watchdog.beat()
+                    perform_login(
+                        driver=driver,
+                        wait=wait,
+                        group_name=group_name,
+                        username=username,
+                        password=password,
+                        api_key=api_key,
+                        st_module=st,
+                    )
+                    watchdog.beat()
+                    switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
+                else:
+                    raise
 
             did_logout = False
             try:
@@ -391,20 +426,55 @@ def render_multi_keyword_search_tab():
                 return
 
             wait = WebDriverWait(driver, 20)
-            perform_login(
-                driver=driver,
-                wait=wait,
-                group_name=group_name,
-                username=username,
-                password=password,
-                api_key=api_key,
-                st_module=st,
-            )
-            switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
-
             fb_logger = st.session_state.get("fb_logger") or ensure_logger(st, run_context="multi-keyword-final")
             watchdog = InactivityWatchdog(driver=driver, wait=wait, st_module=st, logger=fb_logger)
             watchdog.start()
+
+            try:
+                watchdog.beat()
+                perform_login(
+                    driver=driver,
+                    wait=wait,
+                    group_name=group_name,
+                    username=username,
+                    password=password,
+                    api_key=api_key,
+                    st_module=st,
+                )
+                watchdog.beat()
+                switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
+            except Exception as e:
+                if "invalid session id" in str(e).lower():
+                    st.warning("⚠️ 瀏覽器 session 失效，重啟瀏覽器並重試登入...")
+                    try:
+                        watchdog.stop()
+                    except Exception:
+                        pass
+                    try:
+                        driver.quit()
+                    except Exception:
+                        pass
+                    driver = setup_webdriver(headless=run_headless, st_module=st)
+                    if not driver:
+                        st.error("瀏覽器重啟失敗，請重試。")
+                        return
+                    wait = WebDriverWait(driver, 20)
+                    watchdog = InactivityWatchdog(driver=driver, wait=wait, st_module=st, logger=fb_logger)
+                    watchdog.start()
+                    watchdog.beat()
+                    perform_login(
+                        driver=driver,
+                        wait=wait,
+                        group_name=group_name,
+                        username=username,
+                        password=password,
+                        api_key=api_key,
+                        st_module=st,
+                    )
+                    watchdog.beat()
+                    switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
+                else:
+                    raise
 
             did_logout = False
             try:
