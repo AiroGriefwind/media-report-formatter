@@ -15,8 +15,8 @@ from tabs.hong_kong_keyword_search import (
     render_hong_kong_keyword_search_tab,
     render_international_keyword_search_tab,
     render_greater_china_keyword_search_tab,
-    render_multi_keyword_search_tab,
 )
+from tabs.multi_keyword_search import render_multi_keyword_search_tab
 
 def get_app_title():
     """Get the appropriate app title based on environment"""
