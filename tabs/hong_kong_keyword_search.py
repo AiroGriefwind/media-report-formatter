@@ -697,20 +697,20 @@ def _handle_keyword_search_news_logic(
                                     continue
 
                                 use_edit_modal = has_run_search or (period_name != "today") or (preset_index > 0)
-                            run_keyword_search_task(
-                                driver=driver,
-                                wait=wait,
-                                st_module=st,
-                                keyword=keyword,
-                                include_content=include_content,
+                                run_keyword_search_task(
+                                    driver=driver,
+                                    wait=wait,
+                                    st_module=st,
+                                    keyword=keyword,
+                                    include_content=include_content,
                                     use_edit_modal=use_edit_modal,
-                            )
+                                )
                                 has_run_search = True
-                            wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
-                            ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
-                            full_articles_data.extend(
+                                wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
+                                ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
+                                full_articles_data.extend(
                                     scrape_articles_by_news_id(driver, wait, period_items, st_module=st)
-                            )
+                                )
                     else:
                         full_articles_data = []
                         has_run_search = False
@@ -719,17 +719,17 @@ def _handle_keyword_search_news_logic(
                             if not preset_items:
                                 continue
                             use_edit_modal = has_run_search or (preset_index > 0)
-                        run_keyword_search_task(
-                            driver=driver,
-                            wait=wait,
-                            st_module=st,
-                            keyword=keyword,
-                            include_content=include_content,
+                            run_keyword_search_task(
+                                driver=driver,
+                                wait=wait,
+                                st_module=st,
+                                keyword=keyword,
+                                include_content=include_content,
                                 use_edit_modal=use_edit_modal,
-                        )
+                            )
                             has_run_search = True
-                        wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
-                        ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
+                            wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
+                            ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
                             full_articles_data.extend(
                                 scrape_articles_by_news_id(driver, wait, preset_items, st_module=st)
                             )
