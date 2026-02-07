@@ -840,7 +840,7 @@ def _safe_click(driver, element, st_module=None, attempts: int = 3) -> None:
     raise last_err if last_err else RuntimeError("safe_click failed without exception")
 
 
-def scrape_articles_by_news_id(driver, wait, articles_to_scrape, st_module=None):
+def scrape_articles_by_news_id(driver, wait, articles_to_scrape, st_module=None, watchdog=None):
     """
     Scrape articles by locating them via news_id (preferred) or title (fallback).
     This avoids index-based issues when search results change.
@@ -856,6 +856,8 @@ def scrape_articles_by_news_id(driver, wait, articles_to_scrape, st_module=None)
         status_text = st_module.empty()
     
     for i, item in enumerate(articles_to_scrape):
+        if watchdog and i % 5 == 0:
+            watchdog.beat()
         news_id = item.get('news_id')
         title = item.get('title', 'Unknown')
         metadata = item.get('formatted_metadata', '')

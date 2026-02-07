@@ -241,7 +241,10 @@ def perform_author_search(**kwargs):
     wait = kwargs.get('wait')
     author_name = kwargs.get('author')
     st = kwargs.get('st_module')
+    watchdog = kwargs.get('watchdog')
 
+    if watchdog:
+        watchdog.beat()
     _expand_media_author_panel(driver, wait, st)
     _try_select_hk_papers(driver, wait, st)
 
@@ -266,6 +269,8 @@ def perform_author_search(**kwargs):
     author_input.send_keys(author_name)
     search_button = wait_for_enabled_search_button(driver, timeout=10, st_module=st)
     search_button.click()
+    if watchdog:
+        watchdog.beat()
 
 @retry_step
 def ensure_search_results_ready(**kwargs):
@@ -278,6 +283,9 @@ def ensure_search_results_ready(**kwargs):
     try:
         driver = kwargs["driver"]
         st     = kwargs.get("st_module")
+        watchdog = kwargs.get("watchdog")
+        if watchdog:
+            watchdog.beat()
 
         headline_cond = EC.element_to_be_clickable(
             (By.CSS_SELECTOR, "div.list-group .list-group-item h4 a")
@@ -321,6 +329,8 @@ def ensure_search_results_ready(**kwargs):
                 st.info("ℹ️ No-article banner detected – no articles.")
             else:
                 st.write("✅ Headlines present – results found.")
+        if watchdog:
+            watchdog.beat()
         return not (empty or noarticle)
 
     except TimeoutException:
@@ -370,6 +380,7 @@ def scrape_hover_popovers(**kwargs):
     wait = kwargs.get("wait")
     st = kwargs.get("st_module")
     logger = kwargs.get("logger")
+    watchdog = kwargs.get("watchdog")
     screenshot_dir = (
         kwargs.get("screenshot_dir")
         or os.getenv("WISERS_SCREENSHOT_DIR")
@@ -409,6 +420,8 @@ def scrape_hover_popovers(**kwargs):
         actions = ActionChains(driver)
 
         for idx, el in enumerate(elements):
+            if watchdog and idx % 8 == 0:
+                watchdog.beat()
             title = el.text.strip()
 
             try:
@@ -490,6 +503,9 @@ def click_first_result(**kwargs):
     wait = kwargs.get('wait')
     original_window = kwargs.get('original_window')
     st = kwargs.get('st_module')
+    watchdog = kwargs.get('watchdog')
+    if watchdog:
+        watchdog.beat()
 
     # Make sure the headline is still attached each time we click
     def safe_click():
@@ -555,6 +571,9 @@ def scrape_author_article_content(**kwargs):
     wait = kwargs.get('wait')
     author_name = kwargs.get('author_name')
     st = kwargs.get('st_module')
+    watchdog = kwargs.get('watchdog')
+    if watchdog:
+        watchdog.beat()
      
 
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.article-detail')))

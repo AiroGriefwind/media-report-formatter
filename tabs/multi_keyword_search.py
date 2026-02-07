@@ -34,6 +34,7 @@ from utils.wisers_recovery_utils import (
     reset_wisers_light,
     reset_wisers_full,
     abort_with_robust_logout,
+    InactivityWatchdog,
 )
 from utils import international_news_utils as intl_utils
 from tabs.saved_search_news import (
@@ -72,6 +73,7 @@ def _run_keyword_final_with_driver(
     final_list: list,
     max_articles: int,
     start_from_results: bool,
+    watchdog=None,
 ):
     prefix = config["prefix"]
     keyword_presets = _get_keyword_presets(prefix, config)
@@ -107,6 +109,8 @@ def _run_keyword_final_with_driver(
                     driver=driver, wait=wait, st_module=st_module, period_name=period_name
                 )
             for preset_index, keyword in enumerate(keyword_presets):
+                if watchdog:
+                    watchdog.beat()
                 period_items = [
                     item
                     for item in items_by_preset.get(keyword, [])
@@ -122,16 +126,19 @@ def _run_keyword_final_with_driver(
                     keyword=keyword,
                     include_content=include_content,
                     use_edit_modal=use_edit_modal,
+                    watchdog=watchdog,
                 )
                 has_run_search = True
                 wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st_module)
                 ensure_results_list_visible(driver=driver, wait=wait, st_module=st_module)
                 full_articles_data.extend(
-                    scrape_articles_by_news_id(driver, wait, period_items, st_module=st_module)
+                    scrape_articles_by_news_id(driver, wait, period_items, st_module=st_module, watchdog=watchdog)
                 )
     else:
         has_run_search = bool(start_from_results)
         for preset_index, keyword in enumerate(keyword_presets):
+            if watchdog:
+                watchdog.beat()
             preset_items = items_by_preset.get(keyword, [])
             if not preset_items:
                 continue
@@ -143,12 +150,13 @@ def _run_keyword_final_with_driver(
                 keyword=keyword,
                 include_content=include_content,
                 use_edit_modal=use_edit_modal,
+                watchdog=watchdog,
             )
             has_run_search = True
             wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st_module)
             ensure_results_list_visible(driver=driver, wait=wait, st_module=st_module)
             full_articles_data.extend(
-                scrape_articles_by_news_id(driver, wait, preset_items, st_module=st_module)
+                scrape_articles_by_news_id(driver, wait, preset_items, st_module=st_module, watchdog=watchdog)
             )
 
     scraped_keys = {_article_key_from_scraped(a) for a in (full_articles_data or [])}
@@ -270,6 +278,8 @@ def render_multi_keyword_search_tab():
             switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
 
             fb_logger = st.session_state.get("fb_logger") or ensure_logger(st, run_context="multi-keyword-search")
+            watchdog = InactivityWatchdog(driver=driver, wait=wait, st_module=st, logger=fb_logger)
+            watchdog.start()
 
             did_logout = False
             try:
@@ -278,6 +288,7 @@ def render_multi_keyword_search_tab():
                     wait=wait,
                     st_module=st,
                     fb_logger=fb_logger,
+                    watchdog=watchdog,
                 )
 
                 for index, config in enumerate(configs):
@@ -301,6 +312,7 @@ def render_multi_keyword_search_tab():
                                 min_words=min_words,
                                 max_articles=max_articles,
                                 start_from_results=start_from_results,
+                                watchdog=watchdog,
                             )
 
                             grouped_data = build_grouped_data(preview_list, category_label)
@@ -349,6 +361,8 @@ def render_multi_keyword_search_tab():
                 did_logout = True
                 driver.quit()
             finally:
+                if watchdog:
+                    watchdog.stop()
                 if driver:
                     if not did_logout:
                         try:
@@ -389,6 +403,8 @@ def render_multi_keyword_search_tab():
             switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
 
             fb_logger = st.session_state.get("fb_logger") or ensure_logger(st, run_context="multi-keyword-final")
+            watchdog = InactivityWatchdog(driver=driver, wait=wait, st_module=st, logger=fb_logger)
+            watchdog.start()
 
             did_logout = False
             try:
@@ -418,6 +434,7 @@ def render_multi_keyword_search_tab():
                                 final_list=final_list,
                                 max_articles=max_articles,
                                 start_from_results=(start_from_results and attempt == 0),
+                                watchdog=watchdog,
                             )
 
                             if missing_items:
@@ -439,6 +456,8 @@ def render_multi_keyword_search_tab():
                                 for idx, item in enumerate(missing_items):
                                     title = item.get("title", "")
                                     st.write(f"🔁 二次搜索 ({idx+1}/{len(missing_items)}): {title[:50]}...")
+                                    if watchdog:
+                                        watchdog.beat()
 
                                     if idx == 0:
                                         _apply_search_filters(driver, wait, st, include_content)
@@ -458,9 +477,13 @@ def render_multi_keyword_search_tab():
                                             logger=fb_logger,
                                         )
 
+                                    if watchdog:
+                                        watchdog.pause()
                                     has_results = wait_for_search_results(
                                         driver=driver, wait=wait, st_module=st
                                     )
+                                    if watchdog:
+                                        watchdog.resume()
                                     if not has_results:
                                         missing_round2.append(item)
                                         continue
@@ -468,7 +491,7 @@ def render_multi_keyword_search_tab():
                                     ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
 
                                     retry_scraped = scrape_articles_by_news_id(
-                                        driver, wait, [item], st_module=st
+                                        driver, wait, [item], st_module=st, watchdog=watchdog
                                     )
                                     if retry_scraped:
                                         full_articles_data.extend(retry_scraped)
@@ -550,6 +573,8 @@ def render_multi_keyword_search_tab():
                     driver.quit()
 
             finally:
+                if watchdog:
+                    watchdog.stop()
                 if driver and not keep_browser_open:
                     try:
                         if not did_logout:

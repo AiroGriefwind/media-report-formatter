@@ -171,6 +171,7 @@ def run_web_scraping_pre_task(
     authors_list=None,
     fb_logger=None,
     base_folder="web_scraping",
+    watchdog=None,
 ):
     authors_list = _resolve_web_scraping_authors(authors_list, st_module)
     if st_module:
@@ -180,11 +181,19 @@ def run_web_scraping_pre_task(
     author_articles_data = {}
 
     try:
+        if watchdog:
+            watchdog.beat()
         for author in authors_list:
             if st_module:
                 st_module.write(f"🔎 指定作者社評：{author}")
-            perform_author_search(driver=driver, wait=wait, author=author, st_module=st_module)
-            has_results = ensure_search_results_ready(driver=driver, wait=wait, st_module=st_module)
+            if watchdog:
+                watchdog.beat()
+            perform_author_search(
+                driver=driver, wait=wait, author=author, st_module=st_module, watchdog=watchdog
+            )
+            has_results = ensure_search_results_ready(
+                driver=driver, wait=wait, st_module=st_module, watchdog=watchdog
+            )
 
             if not has_results:
                 author_articles_data[author] = {"title": "無法找到文章", "content": ""}
@@ -192,19 +201,31 @@ def run_web_scraping_pre_task(
                 continue
 
             click_first_result(
-                driver=driver, wait=wait, original_window=original_window, st_module=st_module
+                driver=driver,
+                wait=wait,
+                original_window=original_window,
+                st_module=st_module,
+                watchdog=watchdog,
             )
             scraped_data = scrape_author_article_content(
-                driver=driver, wait=wait, author_name=author, st_module=st_module
+                driver=driver,
+                wait=wait,
+                author_name=author,
+                st_module=st_module,
+                watchdog=watchdog,
             )
             author_articles_data[author] = scraped_data
 
             driver.close()
             driver.switch_to.window(original_window)
             go_back_to_search_form(driver=driver, wait=wait, st_module=st_module)
+            if watchdog:
+                watchdog.beat()
 
         if st_module:
             st_module.write("📰 抓取今日報章社評（保存搜索）...")
+        if watchdog:
+            watchdog.beat()
         editorial_data = run_newspaper_editorial_task(driver=driver, wait=wait, st_module=st_module) or []
 
         if st_module:
@@ -213,6 +234,8 @@ def run_web_scraping_pre_task(
             go_back_to_search_form(driver=driver, wait=wait, st_module=st_module)
         except Exception:
             pass
+        if watchdog:
+            watchdog.beat()
         scmp_editorial_data = run_scmp_editorial_task(driver=driver, wait=wait, st_module=st_module) or []
         if scmp_editorial_data:
             editorial_data.extend(scmp_editorial_data)
@@ -280,6 +303,7 @@ def _run_keyword_preview_with_driver(
     min_words,
     max_articles,
     start_from_results=False,
+    watchdog=None,
 ):
     is_monday = is_hkt_monday()
     per_period_max = max(1, max_articles // 2) if is_monday else max_articles
@@ -302,6 +326,8 @@ def _run_keyword_preview_with_driver(
             )
 
         for preset_index, keyword in enumerate(keyword_presets):
+            if watchdog:
+                watchdog.beat()
             use_edit_modal = has_run_search or (period_name != "today") or (preset_index > 0)
             search_meta = run_keyword_search_task(
                 driver=driver,
@@ -312,6 +338,7 @@ def _run_keyword_preview_with_driver(
                 use_edit_modal=use_edit_modal,
                 logger=logger,
                 screenshot_dir=screenshot_dir,
+                watchdog=watchdog,
             )
             has_run_search = True
 
@@ -322,6 +349,7 @@ def _run_keyword_preview_with_driver(
                 max_articles=per_period_max,
                 logger=logger,
                 screenshot_dir=screenshot_dir,
+                watchdog=watchdog,
             ) or []
             raw_count = len(rawlist)
             for item in rawlist:
@@ -415,6 +443,7 @@ def run_keyword_search_task(
     use_edit_modal: bool = False,
     logger=None,
     screenshot_dir=None,
+    watchdog=None,
 ):
     _apply_search_filters(driver, wait, st_module, include_content)
     inject_cjk_font_css(driver, st_module=st_module)
@@ -458,6 +487,8 @@ def run_keyword_search_task(
             screenshot_dir=screenshot_dir,
         )
 
+    if watchdog:
+        watchdog.pause()
     if wait_for_search_results(
         driver=driver,
         wait=wait,
@@ -467,9 +498,13 @@ def run_keyword_search_task(
         loading_grace_seconds=25,
         verify_no_results_wait=6,
     ):
+        if watchdog:
+            watchdog.resume()
         wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st_module)
         ensure_results_list_visible(driver=driver, wait=wait, st_module=st_module)
         scroll_to_load_all_content(driver=driver, st_module=st_module)
         wait_for_ajax_complete(driver, timeout=10)
         return {"no_results": False}
+    if watchdog:
+        watchdog.resume()
     return {"no_results": True}
