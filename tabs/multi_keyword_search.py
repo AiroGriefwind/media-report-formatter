@@ -25,6 +25,7 @@ from utils.keyword_search_utils import (
     _get_api_key,
     _get_keyword_presets,
     _run_keyword_preview_with_driver,
+    run_web_scraping_pre_task,
     run_keyword_search_task,
     _apply_search_filters,
     _is_item_in_period,
@@ -264,6 +265,13 @@ def render_multi_keyword_search_tab():
             switch_language_to_traditional_chinese(driver=driver, wait=wait, st_module=st)
 
             fb_logger = st.session_state.get("fb_logger") or ensure_logger(st, run_context="multi-keyword-search")
+
+            run_web_scraping_pre_task(
+                driver=driver,
+                wait=wait,
+                st_module=st,
+                fb_logger=fb_logger,
+            )
 
             for index, config in enumerate(configs):
                 prefix = config["prefix"]

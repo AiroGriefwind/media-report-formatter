@@ -1,6 +1,7 @@
 import re
 import os
 import time
+import tempfile
 import streamlit as st
 
 from utils.wisers_utils import (
@@ -16,8 +17,18 @@ from utils.wisers_utils import (
     inject_cjk_font_css,
     scroll_to_load_all_content,
     wait_for_ajax_complete,
+    go_back_to_search_form,
 )
-from utils.web_scraping_utils import scrape_hover_popovers
+from utils.web_scraping_utils import (
+    scrape_hover_popovers,
+    perform_author_search,
+    ensure_search_results_ready,
+    click_first_result,
+    scrape_author_article_content,
+    run_newspaper_editorial_task,
+    run_scmp_editorial_task,
+    create_docx_report,
+)
 from utils import international_news_utils as intl_utils
 from utils.firebase_logging import get_logger
 
@@ -52,6 +63,8 @@ MEDIA_FILTER_CONTAINER_SELECTOR = (
     "> div.panel-collapse.collapse.in > div > div:nth-child(3)"
 )
 MEDIA_FILTER_KEEP_LABELS = ["報刊", "綜合新聞", "香港"]
+
+DEFAULT_WEB_SCRAPING_AUTHORS = ["李先知", "余錦賢", "傅流螢", "黄锦辉"]
 
 
 def _get_credentials(prefix="hkkw"):
@@ -139,6 +152,122 @@ def _build_preview_list_from_raw(rawlist):
         item["formatted_metadata"] = parse_metadata(raw_meta)
         preview_list.append(item)
     return preview_list
+
+
+def _resolve_web_scraping_authors(authors_list, st_module):
+    if authors_list:
+        return [a for a in authors_list if a]
+    if st_module:
+        session_list = st_module.session_state.get("ws_authors_list") or []
+        if session_list:
+            return [a for a in session_list if a]
+    return DEFAULT_WEB_SCRAPING_AUTHORS[:]
+
+
+def run_web_scraping_pre_task(
+    driver,
+    wait,
+    st_module,
+    authors_list=None,
+    fb_logger=None,
+    base_folder="web_scraping",
+):
+    authors_list = _resolve_web_scraping_authors(authors_list, st_module)
+    if st_module:
+        st_module.info("🧭 先抓取今日社評與指定作者社評，完成後再進行關鍵詞懸浮爬取。")
+
+    original_window = driver.current_window_handle
+    author_articles_data = {}
+
+    try:
+        for author in authors_list:
+            if st_module:
+                st_module.write(f"🔎 指定作者社評：{author}")
+            perform_author_search(driver=driver, wait=wait, author=author, st_module=st_module)
+            has_results = ensure_search_results_ready(driver=driver, wait=wait, st_module=st_module)
+
+            if not has_results:
+                author_articles_data[author] = {"title": "無法找到文章", "content": ""}
+                go_back_to_search_form(driver=driver, wait=wait, st_module=st_module)
+                continue
+
+            click_first_result(
+                driver=driver, wait=wait, original_window=original_window, st_module=st_module
+            )
+            scraped_data = scrape_author_article_content(
+                driver=driver, wait=wait, author_name=author, st_module=st_module
+            )
+            author_articles_data[author] = scraped_data
+
+            driver.close()
+            driver.switch_to.window(original_window)
+            go_back_to_search_form(driver=driver, wait=wait, st_module=st_module)
+
+        if st_module:
+            st_module.write("📰 抓取今日報章社評（保存搜索）...")
+        editorial_data = run_newspaper_editorial_task(driver=driver, wait=wait, st_module=st_module) or []
+
+        if st_module:
+            st_module.write("📰 抓取今日 SCMP 社評（手動搜索）...")
+        try:
+            go_back_to_search_form(driver=driver, wait=wait, st_module=st_module)
+        except Exception:
+            pass
+        scmp_editorial_data = run_scmp_editorial_task(driver=driver, wait=wait, st_module=st_module) or []
+        if scmp_editorial_data:
+            editorial_data.extend(scmp_editorial_data)
+
+        if fb_logger:
+            fb_logger.save_json_to_date_folder(
+                authors_list, "authors_list.json", base_folder=base_folder
+            )
+            fb_logger.save_json_to_date_folder(
+                author_articles_data, "author_articles.json", base_folder=base_folder
+            )
+            fb_logger.save_json_to_date_folder(
+                editorial_data, "editorial_articles.json", base_folder=base_folder
+            )
+
+            if author_articles_data or editorial_data:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_report:
+                    create_docx_report(
+                        author_articles_data=author_articles_data,
+                        editorial_data=editorial_data,
+                        author_list=authors_list,
+                        output_path=tmp_report.name,
+                        st_module=st_module,
+                    )
+                    with open(tmp_report.name, "rb") as f:
+                        docx_bytes = f.read()
+                try:
+                    os.remove(tmp_report.name)
+                except Exception:
+                    pass
+                fb_logger.save_final_docx_bytes_to_date_folder(
+                    docx_bytes, "web_scraping_report.docx", base_folder=base_folder
+                )
+
+        if st_module:
+            st_module.success("✅ 今日社評與指定作者社評已完成。开始关鍵詞懸浮爬取。")
+
+        return {
+            "authors_list": authors_list,
+            "author_articles": author_articles_data,
+            "editorial_articles": editorial_data,
+        }
+    except Exception as e:
+        if st_module:
+            st_module.warning(f"⚠️ 社評/作者爬取失败，继续进行关键词爬取：{e}")
+        return {
+            "authors_list": authors_list,
+            "author_articles": author_articles_data,
+            "editorial_articles": [],
+        }
+    finally:
+        try:
+            go_back_to_search_form(driver=driver, wait=wait, st_module=st_module)
+        except Exception:
+            pass
 
 
 def _run_keyword_preview_with_driver(
