@@ -509,7 +509,7 @@ def _handle_keyword_search_news_logic(
         if st.session_state.get(f"{prefix}_batch_mode"):
             st.info("已完成預覽（連續搜索模式）。確認後再進入 50% 用戶排序界面。")
         else:
-        st.info("已完成登出並釋放 Session。確認後再進入 50% 用戶排序界面。")
+            st.info("已完成登出並釋放 Session。確認後再進入 50% 用戶排序界面。")
         col_left, col_right = st.columns([0.6, 0.4])
         with col_left:
             if st.button(
