@@ -30,6 +30,11 @@ from utils.keyword_search_utils import (
     _apply_search_filters,
     _is_item_in_period,
 )
+from utils.wisers_recovery_utils import (
+    reset_wisers_light,
+    reset_wisers_full,
+    abort_with_robust_logout,
+)
 from utils import international_news_utils as intl_utils
 from tabs.saved_search_news import (
     ensure_news_session_state,
@@ -266,53 +271,94 @@ def render_multi_keyword_search_tab():
 
             fb_logger = st.session_state.get("fb_logger") or ensure_logger(st, run_context="multi-keyword-search")
 
-            run_web_scraping_pre_task(
-                driver=driver,
-                wait=wait,
-                st_module=st,
-                fb_logger=fb_logger,
-            )
-
-            for index, config in enumerate(configs):
-                prefix = config["prefix"]
-                base_folder = config["base_folder"]
-                category_label = config["category_label"]
-                ensure_news_session_state(fb_logger, prefix, category_label, base_folder)
-
-                keyword_presets = _get_keyword_presets(prefix, config)
-                include_content = bool(st.session_state.get(f"{prefix}_include_content", False))
-                preview_list = _run_keyword_preview_with_driver(
+            did_logout = False
+            try:
+                run_web_scraping_pre_task(
                     driver=driver,
                     wait=wait,
                     st_module=st,
-                    keyword_presets=keyword_presets,
-                    include_content=include_content,
-                    max_words=max_words,
-                    min_words=min_words,
-                    max_articles=max_articles,
-                    start_from_results=index > 0,
+                    fb_logger=fb_logger,
                 )
 
-                grouped_data = build_grouped_data(preview_list, category_label)
-                st.session_state[f"{prefix}_articles_list"] = preview_list
-                st.session_state[f"{prefix}_pool_dict"] = grouped_data
-                st.session_state[f"{prefix}_sorted_dict"] = {category_label: []}
-                st.session_state[f"{prefix}_stage"] = "await_sort_confirm"
-                st.session_state[f"{prefix}_batch_mode"] = True
+                for index, config in enumerate(configs):
+                    prefix = config["prefix"]
+                    base_folder = config["base_folder"]
+                    category_label = config["category_label"]
 
-                fb_logger.save_json_to_date_folder(preview_list, "preview_articles.json", base_folder=base_folder)
-                fb_logger.save_json_to_date_folder(
-                    st.session_state[f"{prefix}_sorted_dict"],
-                    "user_final_list.json",
-                    base_folder=base_folder,
-                )
+                    for attempt in range(3):
+                        try:
+                            ensure_news_session_state(fb_logger, prefix, category_label, base_folder)
+                            keyword_presets = _get_keyword_presets(prefix, config)
+                            include_content = bool(st.session_state.get(f"{prefix}_include_content", False))
+                            start_from_results = (index > 0 and attempt == 0)
+                            preview_list = _run_keyword_preview_with_driver(
+                                driver=driver,
+                                wait=wait,
+                                st_module=st,
+                                keyword_presets=keyword_presets,
+                                include_content=include_content,
+                                max_words=max_words,
+                                min_words=min_words,
+                                max_articles=max_articles,
+                                start_from_results=start_from_results,
+                            )
 
-            st.info("三個板塊懸浮預覽完成，正在登出...")
-            try:
-                robust_logout_request(driver, st)
-            except Exception as e:
-                st.warning(f"登出時出現問題: {e}")
-            driver.quit()
+                            grouped_data = build_grouped_data(preview_list, category_label)
+                            st.session_state[f"{prefix}_articles_list"] = preview_list
+                            st.session_state[f"{prefix}_pool_dict"] = grouped_data
+                            st.session_state[f"{prefix}_sorted_dict"] = {category_label: []}
+                            st.session_state[f"{prefix}_stage"] = "await_sort_confirm"
+                            st.session_state[f"{prefix}_batch_mode"] = True
+
+                            fb_logger.save_json_to_date_folder(
+                                preview_list, "preview_articles.json", base_folder=base_folder
+                            )
+                            fb_logger.save_json_to_date_folder(
+                                st.session_state[f"{prefix}_sorted_dict"],
+                                "user_final_list.json",
+                                base_folder=base_folder,
+                            )
+                            break
+                        except Exception as e:
+                            st.warning(f"⚠️ {config['tab_title']} 懸浮爬取失敗：{e}")
+                            if attempt == 0:
+                                reset_wisers_light(driver=driver, wait=wait, st_module=st, logger=fb_logger)
+                            elif attempt == 1:
+                                reset_wisers_full(
+                                    driver=driver,
+                                    wait=wait,
+                                    st_module=st,
+                                    group_name=group_name,
+                                    username=username,
+                                    password=password,
+                                    api_key=api_key,
+                                    logger=fb_logger,
+                                )
+                            else:
+                                abort_with_robust_logout(
+                                    driver=driver,
+                                    st_module=st,
+                                    reason=f"板塊：{config['tab_title']}",
+                                )
+
+                st.info("三個板塊懸浮預覽完成，正在登出...")
+                try:
+                    robust_logout_request(driver, st)
+                except Exception as e:
+                    st.warning(f"登出時出現問題: {e}")
+                did_logout = True
+                driver.quit()
+            finally:
+                if driver:
+                    if not did_logout:
+                        try:
+                            robust_logout_request(driver, st)
+                        except Exception:
+                            pass
+                    try:
+                        driver.quit()
+                    except Exception:
+                        pass
 
         st.success("✅ 三個板塊已完成連續搜索的懸浮爬取。")
         st.rerun()
@@ -351,111 +397,148 @@ def render_multi_keyword_search_tab():
                     prefix = config["prefix"]
                     base_folder = config["base_folder"]
                     category_label = config["category_label"]
-                    ensure_news_session_state(fb_logger, prefix, category_label, base_folder)
 
-                    user_final_list = _load_user_final_list(fb_logger, base_folder)
-                    final_list = _flatten_user_final_list(user_final_list)
-                    if not final_list:
-                        st.warning(f"⚠️ {config['tab_title']} 尚未完成用戶排序，跳過最終爬取。")
-                        start_from_results = True
-                        continue
-
-                    st.info(f"📌 {config['tab_title']}：開始最終爬取（{len(final_list)} 篇）")
-                    full_articles_data, missing_items = _run_keyword_final_with_driver(
-                        driver=driver,
-                        wait=wait,
-                        st_module=st,
-                        config=config,
-                        final_list=final_list,
-                        max_articles=max_articles,
-                        start_from_results=start_from_results,
-                    )
-
-                    if missing_items:
-                        fb_logger.save_json_to_date_folder(
-                            missing_items,
-                            "missing_articles_round1.json",
-                            base_folder=base_folder,
-                        )
-
-                        missing_round2 = []
+                    for attempt in range(3):
                         try:
-                            go_back_to_search_form(driver=driver, wait=wait, st_module=st)
-                        except Exception:
-                            pass
+                            ensure_news_session_state(fb_logger, prefix, category_label, base_folder)
 
-                        include_content = bool(st.session_state.get(f"{prefix}_include_content", False))
-                        for idx, item in enumerate(missing_items):
-                            title = item.get("title", "")
-                            st.write(f"🔁 二次搜索 ({idx+1}/{len(missing_items)}): {title[:50]}...")
+                            user_final_list = _load_user_final_list(fb_logger, base_folder)
+                            final_list = _flatten_user_final_list(user_final_list)
+                            if not final_list:
+                                st.warning(f"⚠️ {config['tab_title']} 尚未完成用戶排序，跳過最終爬取。")
+                                start_from_results = True
+                                break
 
-                            if idx == 0:
-                                _apply_search_filters(driver, wait, st, include_content)
-                                search_title_from_home(
-                                    driver=driver,
-                                    wait=wait,
-                                    keyword=title,
-                                    st_module=st,
-                                    logger=fb_logger,
+                            st.info(f"📌 {config['tab_title']}：開始最終爬取（{len(final_list)} 篇）")
+                            full_articles_data, missing_items = _run_keyword_final_with_driver(
+                                driver=driver,
+                                wait=wait,
+                                st_module=st,
+                                config=config,
+                                final_list=final_list,
+                                max_articles=max_articles,
+                                start_from_results=(start_from_results and attempt == 0),
+                            )
+
+                            if missing_items:
+                                fb_logger.save_json_to_date_folder(
+                                    missing_items,
+                                    "missing_articles_round1.json",
+                                    base_folder=base_folder,
                                 )
-                            else:
-                                search_title_via_edit_search_modal(
-                                    driver=driver,
-                                    wait=wait,
-                                    keyword=title,
-                                    st_module=st,
-                                    logger=fb_logger,
+
+                                missing_round2 = []
+                                try:
+                                    go_back_to_search_form(driver=driver, wait=wait, st_module=st)
+                                except Exception:
+                                    pass
+
+                                include_content = bool(
+                                    st.session_state.get(f"{prefix}_include_content", False)
                                 )
+                                for idx, item in enumerate(missing_items):
+                                    title = item.get("title", "")
+                                    st.write(f"🔁 二次搜索 ({idx+1}/{len(missing_items)}): {title[:50]}...")
 
-                            has_results = wait_for_search_results(driver=driver, wait=wait, st_module=st)
-                            if not has_results:
-                                missing_round2.append(item)
-                                continue
-                            wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
-                            ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
+                                    if idx == 0:
+                                        _apply_search_filters(driver, wait, st, include_content)
+                                        search_title_from_home(
+                                            driver=driver,
+                                            wait=wait,
+                                            keyword=title,
+                                            st_module=st,
+                                            logger=fb_logger,
+                                        )
+                                    else:
+                                        search_title_via_edit_search_modal(
+                                            driver=driver,
+                                            wait=wait,
+                                            keyword=title,
+                                            st_module=st,
+                                            logger=fb_logger,
+                                        )
 
-                            retry_scraped = scrape_articles_by_news_id(driver, wait, [item], st_module=st)
-                            if retry_scraped:
-                                full_articles_data.extend(retry_scraped)
-                            else:
-                                missing_round2.append(item)
+                                    has_results = wait_for_search_results(
+                                        driver=driver, wait=wait, st_module=st
+                                    )
+                                    if not has_results:
+                                        missing_round2.append(item)
+                                        continue
+                                    wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
+                                    ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
 
-                        if missing_round2:
-                            st.warning(f"⚠️ 二次搜索仍缺失 {len(missing_round2)} 篇，已記錄清單。")
+                                    retry_scraped = scrape_articles_by_news_id(
+                                        driver, wait, [item], st_module=st
+                                    )
+                                    if retry_scraped:
+                                        full_articles_data.extend(retry_scraped)
+                                    else:
+                                        missing_round2.append(item)
+
+                                if missing_round2:
+                                    st.warning(
+                                        f"⚠️ 二次搜索仍缺失 {len(missing_round2)} 篇，已記錄清單。"
+                                    )
+                                    fb_logger.save_json_to_date_folder(
+                                        missing_round2,
+                                        "missing_articles_round2.json",
+                                        base_folder=base_folder,
+                                    )
+
+                            st.session_state[f"{prefix}_final_articles"] = full_articles_data
                             fb_logger.save_json_to_date_folder(
-                                missing_round2,
-                                "missing_articles_round2.json",
+                                full_articles_data,
+                                "full_scraped_articles.json",
                                 base_folder=base_folder,
                             )
 
-                    st.session_state[f"{prefix}_final_articles"] = full_articles_data
-                    fb_logger.save_json_to_date_folder(
-                        full_articles_data, "full_scraped_articles.json", base_folder=base_folder
-                    )
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+                                out_path = create_international_news_report(
+                                    articles_data=full_articles_data,
+                                    output_path=tmp.name,
+                                    st_module=st,
+                                    report_title=config["report_title"],
+                                )
+                                with open(out_path, "rb") as f:
+                                    docx_bytes = f.read()
 
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
-                        out_path = create_international_news_report(
-                            articles_data=full_articles_data,
-                            output_path=tmp.name,
-                            st_module=st,
-                            report_title=config["report_title"],
-                        )
-                        with open(out_path, "rb") as f:
-                            docx_bytes = f.read()
+                            st.session_state[f"{prefix}_final_docx"] = docx_bytes
+                            fb_logger.save_final_docx_bytes_to_date_folder(
+                                docx_bytes, "final_report.docx", base_folder=base_folder
+                            )
 
-                    st.session_state[f"{prefix}_final_docx"] = docx_bytes
-                    fb_logger.save_final_docx_bytes_to_date_folder(
-                        docx_bytes, "final_report.docx", base_folder=base_folder
-                    )
+                            trimmed_bytes = trim_docx_bytes_with_userlist(
+                                docx_bytes, user_final_list, keep_body_paras=3
+                            )
+                            fb_logger.save_final_docx_bytes_to_date_folder(
+                                trimmed_bytes, "final_report_trimmed.docx", base_folder=base_folder
+                            )
+                            st.session_state[f"{prefix}_final_docx_trimmed"] = trimmed_bytes
+                            st.session_state[f"{prefix}_stage"] = "finished"
 
-                    trimmed_bytes = trim_docx_bytes_with_userlist(docx_bytes, user_final_list, keep_body_paras=3)
-                    fb_logger.save_final_docx_bytes_to_date_folder(
-                        trimmed_bytes, "final_report_trimmed.docx", base_folder=base_folder
-                    )
-                    st.session_state[f"{prefix}_final_docx_trimmed"] = trimmed_bytes
-                    st.session_state[f"{prefix}_stage"] = "finished"
-
-                    start_from_results = True
+                            start_from_results = True
+                            break
+                        except Exception as e:
+                            st.warning(f"⚠️ {config['tab_title']} 最終爬取失敗：{e}")
+                            if attempt == 0:
+                                reset_wisers_light(driver=driver, wait=wait, st_module=st, logger=fb_logger)
+                            elif attempt == 1:
+                                reset_wisers_full(
+                                    driver=driver,
+                                    wait=wait,
+                                    st_module=st,
+                                    group_name=group_name,
+                                    username=username,
+                                    password=password,
+                                    api_key=api_key,
+                                    logger=fb_logger,
+                                )
+                            else:
+                                abort_with_robust_logout(
+                                    driver=driver,
+                                    st_module=st,
+                                    reason=f"板塊：{config['tab_title']}",
+                                )
 
                 st.info("三個板塊最終爬取完成，正在登出...")
                 try:
