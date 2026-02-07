@@ -24,12 +24,13 @@ from datetime import datetime
 
 # Import shared Wisers functions
 from .wisers_utils import (
-    retry_step, 
-    wait_for_search_results, 
-    scroll_to_load_all_content, 
+    retry_step,
+    wait_for_search_results,
+    scroll_to_load_all_content,
     wait_for_ajax_complete,
     wait_for_enabled_search_button,
     inject_cjk_font_css,
+    set_media_filters_in_panel,
 )
 
 from .config import WISERS_URL, MEDIA_NAME_MAPPINGS, EDITORIAL_MEDIA_ORDER, EDITORIAL_MEDIA_NAMES
@@ -147,6 +148,90 @@ def _debug_tab_bar(driver, st):
 
 
 # =============================================================================
+# MEDIA/AUTHOR PANEL HELPERS
+# =============================================================================
+
+def _expand_media_author_panel(driver, wait, st=None):
+    """
+    Best-effort expand the 媒體/作者 panel for visibility.
+    """
+    toggle_selectors = [
+        (By.XPATH, "//div[contains(@class,'toggle-collapse') and .//span[contains(normalize-space(),'媒體/作者')]]"),
+        (By.CSS_SELECTOR, "div.toggle-collapse[data-toggle='collapse']"),
+    ]
+    for by, selector in toggle_selectors:
+        try:
+            toggle = wait.until(EC.element_to_be_clickable((by, selector)))
+            driver.execute_script("arguments[0].click();", toggle)
+            time.sleep(0.6)
+            return True
+        except Exception:
+            continue
+    if st:
+        st.warning("未能展开『媒體/作者』面板，继续尝试其他方式。")
+    return False
+
+
+def _try_select_hk_papers(driver, wait, st=None):
+    """
+    Best-effort pick the '各大香港報章' media group if it exists.
+    Never raises; returns True when a selection click happened.
+    """
+    label_xpaths = [
+        "//label[span[normalize-space(text())='各大香港報章']]",
+        "//label[span[contains(normalize-space(text()),'香港') and contains(normalize-space(text()),'報章')]]",
+        "//label[contains(normalize-space(.),'香港報章') or contains(normalize-space(.),'各大香港報章')]",
+    ]
+
+    # Try dropdown-based selection first
+    dropdown_selectors = [
+        "button.btn-naked.dropdown-toggle[data-toggle='dropdown']",
+        "button.dropdown-toggle[data-toggle='dropdown']",
+        "button.dropdown-toggle",
+    ]
+    for selector in dropdown_selectors:
+        try:
+            toggles = driver.find_elements(By.CSS_SELECTOR, selector)
+        except Exception:
+            toggles = []
+        for toggle in toggles:
+            try:
+                if not toggle.is_displayed():
+                    continue
+                driver.execute_script("arguments[0].click();", toggle)
+                time.sleep(0.6)
+                for xpath in label_xpaths:
+                    try:
+                        label = WebDriverWait(driver, 3).until(
+                            EC.element_to_be_clickable((By.XPATH, xpath))
+                        )
+                        driver.execute_script("arguments[0].click();", label)
+                        time.sleep(0.6)
+                        return True
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+
+    # Fallback: try media filter panel checkboxes
+    try:
+        result = set_media_filters_in_panel(
+            driver=driver,
+            wait=wait,
+            st_module=st,
+            keep_labels=["各大香港報章"],
+        )
+        if result:
+            return True
+    except Exception:
+        pass
+
+    if st:
+        st.warning("未找到『各大香港報章』选项，将继续搜索。")
+    return False
+
+
+# =============================================================================
 # AUTHOR SEARCH SPECIFIC FUNCTIONS
 # =============================================================================
 
@@ -156,18 +241,27 @@ def perform_author_search(**kwargs):
     wait = kwargs.get('wait')
     author_name = kwargs.get('author')
     st = kwargs.get('st_module')
-     
 
-    toggle_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.toggle-collapse[data-toggle="collapse"]')))
-    driver.execute_script("arguments[0].click();", toggle_button)
-    time.sleep(3)
-    my_media_dropdown_toggle = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button.btn-naked.dropdown-toggle[data-toggle="dropdown"]')))
-    my_media_dropdown_toggle.click()
-    time.sleep(3)
-    hongkong_option = wait.until(EC.element_to_be_clickable((By.XPATH, '//label[span[text()="各大香港報章"]]')))
-    hongkong_option.click()
-    time.sleep(3)
-    author_input = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, 'input.form-control[placeholder="作者"]')))
+    _expand_media_author_panel(driver, wait, st)
+    _try_select_hk_papers(driver, wait, st)
+
+    author_input = None
+    input_selectors = [
+        (By.CSS_SELECTOR, 'input.form-control[placeholder="作者"]'),
+        (By.CSS_SELECTOR, 'input[placeholder*="作者"]'),
+        (By.CSS_SELECTOR, 'input[aria-label*="作者"]'),
+        (By.XPATH, "//label[contains(normalize-space(.),'作者')]//input"),
+    ]
+    for by, selector in input_selectors:
+        try:
+            author_input = wait.until(EC.visibility_of_element_located((by, selector)))
+            if author_input:
+                break
+        except Exception:
+            continue
+    if not author_input:
+        raise NoSuchElementException("Could not locate author input field.")
+
     author_input.clear()
     author_input.send_keys(author_name)
     search_button = wait_for_enabled_search_button(driver, timeout=10, st_module=st)
@@ -558,16 +652,26 @@ def run_scmp_editorial_task(**kwargs):
     wait = kwargs.get('wait')
     st = kwargs.get('st_module')
 
-    toggle_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.toggle-collapse[data-toggle="collapse"]')))
-    driver.execute_script("arguments[0].click();", toggle_button)
-    time.sleep(2)
-    my_media_dropdown_toggle = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button.btn-naked.dropdown-toggle[data-toggle="dropdown"]')))
-    my_media_dropdown_toggle.click()
-    time.sleep(1)
-    hongkong_option = wait.until(EC.element_to_be_clickable((By.XPATH, '//label[span[text()="各大香港報章"]]')))
-    hongkong_option.click()
-    time.sleep(1)
-    author_input = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, 'input.form-control[placeholder="欄目"]')))
+    _expand_media_author_panel(driver, wait, st)
+    _try_select_hk_papers(driver, wait, st)
+
+    author_input = None
+    input_selectors = [
+        (By.CSS_SELECTOR, 'input.form-control[placeholder="欄目"]'),
+        (By.CSS_SELECTOR, 'input[placeholder*="欄目"]'),
+        (By.CSS_SELECTOR, 'input[aria-label*="欄目"]'),
+        (By.XPATH, "//label[contains(normalize-space(.),'欄目')]//input"),
+    ]
+    for by, selector in input_selectors:
+        try:
+            author_input = wait.until(EC.visibility_of_element_located((by, selector)))
+            if author_input:
+                break
+        except Exception:
+            continue
+    if not author_input:
+        raise NoSuchElementException("Could not locate column input field.")
+
     author_input.clear()
     author_input.send_keys("editorial")
     search_button = wait_for_enabled_search_button(driver, timeout=10, st_module=st)
