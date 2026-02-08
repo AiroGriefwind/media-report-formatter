@@ -68,6 +68,46 @@ def extract_web_scraping_sections(docx_bytes: bytes) -> tuple:
             editorial_lines.append(text)
     return (_trim_blank_lines(editorial_lines), _trim_blank_lines(author_lines))
 
+def _hkt_date_str(days_delta: int = 0) -> str:
+    return (datetime.now(HKT).date() + timedelta(days=days_delta)).strftime("%Y%m%d")
+
+
+def firebase_docx_exists(fb_logger, filename: str, base_folder: str, date_str: str = None) -> bool:
+    if not fb_logger or not getattr(fb_logger, "bucket", None):
+        return False
+    if not date_str:
+        date_str = _hkt_date_str()
+    remote_path = f"{base_folder}/{date_str}/{filename}"
+    try:
+        blob = fb_logger.bucket.blob(remote_path)
+        return bool(blob.exists())
+    except Exception:
+        return False
+
+
+def load_docx_from_firebase_date(fb_logger, filename: str, base_folder: str, date_str: str = None):
+    if not fb_logger or not getattr(fb_logger, "bucket", None):
+        return None
+    if not date_str:
+        date_str = _hkt_date_str()
+    remote_path = f"{base_folder}/{date_str}/{filename}"
+    try:
+        blob = fb_logger.bucket.blob(remote_path)
+        if blob.exists():
+            return blob.download_as_bytes()
+    except Exception:
+        return None
+    return None
+
+
+def merge_keyword_report_bodies(docx_bytes_list: list, report_title: str) -> list:
+    combined = []
+    for docx_bytes in docx_bytes_list:
+        if not docx_bytes:
+            continue
+        combined.extend(extract_keyword_report_body(docx_bytes, report_title))
+    return _trim_blank_lines(combined)
+
 
 def build_combined_report_docx_bytes(
     editorial_lines: list,

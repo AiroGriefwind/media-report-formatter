@@ -1,5 +1,7 @@
 import streamlit as st
 import tempfile
+from datetime import datetime, timedelta
+import pytz
 from selenium.webdriver.support.ui import WebDriverWait
 
 from utils.wisers_utils import (
@@ -38,10 +40,12 @@ from utils.wisers_recovery_utils import (
 )
 from utils import international_news_utils as intl_utils
 from utils.combined_report_utils import (
-    extract_keyword_report_body,
     extract_web_scraping_sections,
     build_combined_report_docx_bytes,
     format_docx_bytes_with_workflow,
+    load_docx_from_firebase_date,
+    firebase_docx_exists,
+    merge_keyword_report_bodies,
 )
 from tabs.saved_search_news import (
     ensure_news_session_state,
@@ -54,6 +58,113 @@ from tabs.saved_search_news import (
 
 scrape_articles_by_news_id = intl_utils.scrape_articles_by_news_id
 create_international_news_report = intl_utils.create_international_news_report
+
+
+def _hkt_date_str(days_delta: int = 0) -> str:
+    tz = pytz.timezone("Asia/Hong_Kong")
+    return (datetime.now(tz).date() + timedelta(days=days_delta)).strftime("%Y%m%d")
+
+
+def _render_firebase_today_status(fb_logger, st_module):
+    today_str = _hkt_date_str(0)
+    statuses = [
+        ("國際新聞", "international_keyword_search", "final_report.docx"),
+        ("大中華新聞", "greater_china_keyword_search", "final_report.docx"),
+        ("本地新聞", "hong_kong_keyword_search", "final_report.docx"),
+        ("社評/指定作者社評", "web_scraping", "web_scraping_report.docx"),
+    ]
+    st_module.subheader("📦 Firebase 今日完成板塊")
+    for label, base_folder, filename in statuses:
+        exists = firebase_docx_exists(
+            fb_logger=fb_logger,
+            base_folder=base_folder,
+            filename=filename,
+            date_str=today_str,
+        )
+        mark = "✅" if exists else "❌"
+        st_module.write(f"{mark} {label}")
+
+
+def _generate_combined_report(fb_logger, st_module):
+    today_str = _hkt_date_str(0)
+    day_list = [today_str]
+    if is_hkt_monday():
+        day_list = [_hkt_date_str(-1), today_str]
+
+    missing = []
+
+    ws_docx = load_docx_from_firebase_date(
+        fb_logger=fb_logger,
+        filename="web_scraping_report.docx",
+        base_folder="web_scraping",
+        date_str=today_str,
+    )
+    if not ws_docx:
+        missing.append(f"社評/指定作者社評 ({today_str})")
+
+    intl_docs = [
+        load_docx_from_firebase_date(
+            fb_logger=fb_logger,
+            filename="final_report.docx",
+            base_folder="international_keyword_search",
+            date_str=ds,
+        )
+        for ds in day_list
+    ]
+    if not any(intl_docs):
+        missing.append(f"國際新聞 ({' + '.join(day_list)})")
+
+    gc_docs = [
+        load_docx_from_firebase_date(
+            fb_logger=fb_logger,
+            filename="final_report.docx",
+            base_folder="greater_china_keyword_search",
+            date_str=ds,
+        )
+        for ds in day_list
+    ]
+    if not any(gc_docs):
+        missing.append(f"大中華新聞 ({' + '.join(day_list)})")
+
+    local_docs = [
+        load_docx_from_firebase_date(
+            fb_logger=fb_logger,
+            filename="final_report.docx",
+            base_folder="hong_kong_keyword_search",
+            date_str=ds,
+        )
+        for ds in day_list
+    ]
+    if not any(local_docs):
+        missing.append(f"本地新聞 ({' + '.join(day_list)})")
+
+    if missing:
+        st_module.warning("⚠️ Firebase 缺少以下板塊：" + "；".join(missing))
+
+    editorial_lines, author_lines = ([], [])
+    if ws_docx:
+        editorial_lines, author_lines = extract_web_scraping_sections(ws_docx)
+
+    intl_lines = merge_keyword_report_bodies(intl_docs, "國際新聞摘要")
+    gc_lines = merge_keyword_report_bodies(gc_docs, "大中華新聞摘要")
+    local_lines = merge_keyword_report_bodies(local_docs, "本地新聞摘要")
+
+    combined_docx = build_combined_report_docx_bytes(
+        editorial_lines=editorial_lines,
+        international_lines=intl_lines,
+        greater_china_lines=gc_lines,
+        local_lines=local_lines,
+        author_lines=author_lines,
+    )
+
+    formatted_docx = format_docx_bytes_with_workflow(combined_docx)
+    st_module.session_state["multi_kw_combined_formatted_docx"] = formatted_docx
+    fb_logger.save_final_docx_bytes_to_date_folder(
+        formatted_docx,
+        "combined_report_formatted.docx",
+        base_folder="combined_reports",
+    )
+    st_module.success("✅ 已完成合併並格式化報告。")
 
 
 def _load_user_final_list(fb_logger, base_folder: str) -> dict:
@@ -421,6 +532,13 @@ def render_multi_keyword_search_tab():
     st.divider()
     st.info("完成後請切換到各板塊單獨 tab 進行排序與全文爬取。")
 
+    fb_logger = st.session_state.get("fb_logger") or ensure_logger(st, run_context="multi-keyword-final")
+    _render_firebase_today_status(fb_logger, st)
+
+    if st.button("🧩 生成最終合併文檔", type="secondary", use_container_width=True, key="multi-kw-generate-combined"):
+        with st.spinner("正在合併並格式化最終文檔..."):
+            _generate_combined_report(fb_logger, st)
+
     if st.session_state.get("multi_kw_combined_formatted_docx"):
         st.download_button(
             label="📥 下載格式化合併報告",
@@ -657,43 +775,7 @@ def render_multi_keyword_search_tab():
                     driver.quit()
 
                 try:
-                    ws_docx = fb_logger.load_final_docx_from_date_folder(
-                        "web_scraping_report.docx", base_folder="web_scraping"
-                    )
-                    intl_docx = fb_logger.load_final_docx_from_date_folder(
-                        "final_report.docx", base_folder="international_keyword_search"
-                    )
-                    gc_docx = fb_logger.load_final_docx_from_date_folder(
-                        "final_report.docx", base_folder="greater_china_keyword_search"
-                    )
-                    local_docx = fb_logger.load_final_docx_from_date_folder(
-                        "final_report.docx", base_folder="hong_kong_keyword_search"
-                    )
-
-                    if ws_docx and intl_docx and gc_docx and local_docx:
-                        editorial_lines, author_lines = extract_web_scraping_sections(ws_docx)
-                        intl_lines = extract_keyword_report_body(intl_docx, "國際新聞摘要")
-                        gc_lines = extract_keyword_report_body(gc_docx, "大中華新聞摘要")
-                        local_lines = extract_keyword_report_body(local_docx, "本地新聞摘要")
-
-                        combined_docx = build_combined_report_docx_bytes(
-                            editorial_lines=editorial_lines,
-                            international_lines=intl_lines,
-                            greater_china_lines=gc_lines,
-                            local_lines=local_lines,
-                            author_lines=author_lines,
-                        )
-
-                        formatted_docx = format_docx_bytes_with_workflow(combined_docx)
-                        st.session_state["multi_kw_combined_formatted_docx"] = formatted_docx
-                        fb_logger.save_final_docx_bytes_to_date_folder(
-                            formatted_docx,
-                            "combined_report_formatted.docx",
-                            base_folder="combined_reports",
-                        )
-                        st.success("✅ 已完成合併並格式化報告。")
-                    else:
-                        st.warning("⚠️ Firebase 文檔不完整，未能合併與格式化。")
+                    _generate_combined_report(fb_logger, st)
                 except Exception as e:
                     st.warning(f"⚠️ 合併與格式化報告失敗: {e}")
 
