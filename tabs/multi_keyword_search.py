@@ -37,6 +37,12 @@ from utils.wisers_recovery_utils import (
     InactivityWatchdog,
 )
 from utils import international_news_utils as intl_utils
+from utils.combined_report_utils import (
+    extract_keyword_report_body,
+    extract_web_scraping_sections,
+    build_combined_report_docx_bytes,
+    format_docx_bytes_with_workflow,
+)
 from tabs.saved_search_news import (
     ensure_news_session_state,
     build_grouped_data,
@@ -415,6 +421,14 @@ def render_multi_keyword_search_tab():
     st.divider()
     st.info("完成後請切換到各板塊單獨 tab 進行排序與全文爬取。")
 
+    if st.session_state.get("multi_kw_combined_formatted_docx"):
+        st.download_button(
+            label="📥 下載格式化合併報告",
+            data=st.session_state["multi_kw_combined_formatted_docx"],
+            file_name="combined_report_formatted.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
     if st.button("🚀 一鍵三板塊：最終爬取", type="secondary", use_container_width=True, key="multi-kw-final"):
         group_name, username, password, _bucket = _get_credentials("multi-kw-final")
         api_key = _get_api_key("multi-kw-final")
@@ -641,6 +655,47 @@ def render_multi_keyword_search_tab():
                 did_logout = True
                 if not keep_browser_open:
                     driver.quit()
+
+                try:
+                    ws_docx = fb_logger.load_final_docx_from_date_folder(
+                        "web_scraping_report.docx", base_folder="web_scraping"
+                    )
+                    intl_docx = fb_logger.load_final_docx_from_date_folder(
+                        "final_report.docx", base_folder="international_keyword_search"
+                    )
+                    gc_docx = fb_logger.load_final_docx_from_date_folder(
+                        "final_report.docx", base_folder="greater_china_keyword_search"
+                    )
+                    local_docx = fb_logger.load_final_docx_from_date_folder(
+                        "final_report.docx", base_folder="hong_kong_keyword_search"
+                    )
+
+                    if ws_docx and intl_docx and gc_docx and local_docx:
+                        editorial_lines, author_lines = extract_web_scraping_sections(ws_docx)
+                        intl_lines = extract_keyword_report_body(intl_docx, "國際新聞摘要")
+                        gc_lines = extract_keyword_report_body(gc_docx, "大中華新聞摘要")
+                        local_lines = extract_keyword_report_body(local_docx, "本地新聞摘要")
+
+                        combined_docx = build_combined_report_docx_bytes(
+                            editorial_lines=editorial_lines,
+                            international_lines=intl_lines,
+                            greater_china_lines=gc_lines,
+                            local_lines=local_lines,
+                            author_lines=author_lines,
+                        )
+
+                        formatted_docx = format_docx_bytes_with_workflow(combined_docx)
+                        st.session_state["multi_kw_combined_formatted_docx"] = formatted_docx
+                        fb_logger.save_final_docx_bytes_to_date_folder(
+                            formatted_docx,
+                            "combined_report_formatted.docx",
+                            base_folder="combined_reports",
+                        )
+                        st.success("✅ 已完成合併並格式化報告。")
+                    else:
+                        st.warning("⚠️ Firebase 文檔不完整，未能合併與格式化。")
+                except Exception as e:
+                    st.warning(f"⚠️ 合併與格式化報告失敗: {e}")
 
             finally:
                 if watchdog:
