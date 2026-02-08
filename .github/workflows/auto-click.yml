@@ -1,0 +1,32 @@
+name: Auto click Streamlit
+
+on:
+  schedule:
+    # 04:30 HKT (UTC+8) = 20:30 UTC previous day
+    - cron: "30 20 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  auto-click:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Run auto click script
+        env:
+          TARGET_URL: "https://media-report-formatter-wvnugiohbpe9liuxgsz2tf.streamlit.app/"
+          WAIT_MINUTES: "20"
+        run: python scripts/auto_click_streamlit.py
