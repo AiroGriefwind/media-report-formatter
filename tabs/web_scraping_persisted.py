@@ -239,7 +239,13 @@ def _handle_scraping_process_with_firebase(
                 go_back_to_search_form(driver=driver, wait=wait, st_module=st)
                 continue
 
-            click_first_result(driver=driver, wait=wait, original_window=original_window, st_module=st)
+            click_first_result(
+                driver=driver,
+                wait=wait,
+                original_window=original_window,
+                st_module=st,
+                robust_logout_on_failure=False,
+            )
 
             scraped_data = scrape_author_article_content(
                 driver=driver, wait=wait, author_name=author, st_module=st

@@ -30,6 +30,7 @@ from .wisers_utils import (
     wait_for_ajax_complete,
     wait_for_enabled_search_button,
     wait_for_results_panel_ready,
+    ensure_results_list_visible,
     inject_cjk_font_css,
     set_media_filters_in_panel,
 )
@@ -152,6 +153,38 @@ def _debug_tab_bar(driver, st):
 # =============================================================================
 # MEDIA/AUTHOR PANEL HELPERS
 # =============================================================================
+
+def _capture_results_screenshot(driver, st, reason: str):
+    screenshot_dir = (
+        os.getenv("WISERS_SCREENSHOT_DIR")
+        or os.path.join(".", "artifacts", "screenshots")
+    )
+    if not driver:
+        return
+    try:
+        inject_cjk_font_css(driver, st_module=st)
+        img_bytes = driver.get_screenshot_as_png()
+        if st:
+            st.image(img_bytes, caption=f"{reason} screenshot")
+        try:
+            os.makedirs(screenshot_dir, exist_ok=True)
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            fname = f"{ts}_{reason}.png"
+            local_fp = os.path.join(screenshot_dir, fname)
+            with open(local_fp, "wb") as f:
+                f.write(img_bytes)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def _results_are_empty_with_banner(driver) -> bool:
+    try:
+        return _results_are_empty(driver) or _detect_no_article_banner(driver)
+    except Exception:
+        return False
+
 
 def _get_home_inputs(key):
     return (HTML_STRUCTURE.get("home", {}).get("inputs", {}) or {}).get(key, [])
@@ -370,6 +403,8 @@ def ensure_search_results_ready(**kwargs):
                 st.info("ℹ️ No-article banner detected – no articles.")
             else:
                 st.write("✅ Headlines present – results found.")
+        if empty or noarticle:
+            _capture_results_screenshot(driver, st, "no_results")
         if watchdog:
             watchdog.beat()
         return not (empty or noarticle)
@@ -548,6 +583,16 @@ def click_first_result(**kwargs):
     if watchdog:
         watchdog.beat()
 
+    try:
+        wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st, timeout=20)
+        wait_for_ajax_complete(driver, timeout=10)
+        ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
+    except Exception:
+        pass
+    if _results_are_empty_with_banner(driver):
+        _capture_results_screenshot(driver, st, "no_results")
+        raise Exception("No results to click.")
+
     # Make sure the headline is still attached each time we click
     def safe_click():
         headline = wait.until(
@@ -555,8 +600,11 @@ def click_first_result(**kwargs):
                 (By.CSS_SELECTOR, "div.list-group .list-group-item h4 a")
             )
         )
-        driver.execute_script("arguments[0].scrollIntoView(true);", headline)
-        headline.click()
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", headline)
+        try:
+            headline.click()
+        except Exception:
+            driver.execute_script("arguments[0].click();", headline)
 
     safe_click()
 
@@ -573,13 +621,24 @@ def click_first_result(**kwargs):
     except TimeoutException:
         if st:
             st.warning("[click_first_result] New tab not detected within 3s, retrying click...")
+        # If detail page opened in same tab, accept it
+        try:
+            if driver.find_elements(By.CSS_SELECTOR, "div.article-detail"):
+                if st:
+                    st.write("[click_first_result] Opened in same tab.")
+                return
+        except Exception:
+            pass
         # Retry click once
         first_link = wait.until(
             EC.element_to_be_clickable(
                 (By.CSS_SELECTOR, "div.list-group .list-group-item h4 a")
             )
         )
-        first_link.click()
+        try:
+            first_link.click()
+        except Exception:
+            driver.execute_script("arguments[0].click();", first_link)
         # Then wait again for the new tab
         WebDriverWait(driver, 3).until(EC.number_of_windows_to_be(2))
         for handle in driver.window_handles:

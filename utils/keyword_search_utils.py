@@ -198,13 +198,49 @@ def run_web_scraping_pre_task(
                 go_back_to_search_form(driver=driver, wait=wait, st_module=st_module)
                 continue
 
-            click_first_result(
-                driver=driver,
-                wait=wait,
-                original_window=original_window,
-                st_module=st_module,
-                watchdog=watchdog,
-            )
+            try:
+                click_first_result(
+                    driver=driver,
+                    wait=wait,
+                    original_window=original_window,
+                    st_module=st_module,
+                    watchdog=watchdog,
+                    robust_logout_on_failure=False,
+                )
+            except Exception as e:
+                if st_module:
+                    st_module.warning(f"⚠️ 點擊首條結果失敗，嘗試重置並重試：{e}")
+                try:
+                    reset_wisers_light(
+                        driver=driver,
+                        wait=wait,
+                        st_module=st_module,
+                        logger=fb_logger,
+                    )
+                except Exception:
+                    pass
+                perform_author_search(
+                    driver=driver,
+                    wait=wait,
+                    author=author,
+                    st_module=st_module,
+                    watchdog=watchdog,
+                )
+                has_results = ensure_search_results_ready(
+                    driver=driver, wait=wait, st_module=st_module, watchdog=watchdog
+                )
+                if not has_results:
+                    author_articles_data[author] = {"title": "無法找到文章", "content": ""}
+                    go_back_to_search_form(driver=driver, wait=wait, st_module=st_module)
+                    continue
+                click_first_result(
+                    driver=driver,
+                    wait=wait,
+                    original_window=original_window,
+                    st_module=st_module,
+                    watchdog=watchdog,
+                    robust_logout_on_failure=False,
+                )
             scraped_data = scrape_author_article_content(
                 driver=driver,
                 wait=wait,

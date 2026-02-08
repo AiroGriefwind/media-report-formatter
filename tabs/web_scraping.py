@@ -183,8 +183,13 @@ def _handle_scraping_process(group_name, username, password, api_key, authors_in
                 continue
 
             # 3. We do have results: click first item and scrape content
-            click_first_result(driver=driver, wait=wait,
-                            original_window=original_window, st_module=st)
+            click_first_result(
+                driver=driver,
+                wait=wait,
+                original_window=original_window,
+                st_module=st,
+                robust_logout_on_failure=False,
+            )
 
             # 4. Scrape the article content from the new tab
             scraped_data = scrape_author_article_content(
