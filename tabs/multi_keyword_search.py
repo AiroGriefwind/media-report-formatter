@@ -68,9 +68,9 @@ def _hkt_date_str(days_delta: int = 0) -> str:
 def _render_firebase_today_status(fb_logger, st_module):
     today_str = _hkt_date_str(0)
     statuses = [
-        ("國際新聞", "international_keyword_search", "final_report.docx"),
-        ("大中華新聞", "greater_china_keyword_search", "final_report.docx"),
-        ("本地新聞", "hong_kong_keyword_search", "final_report.docx"),
+        ("國際新聞", "international_keyword_search", "final_report_trimmed.docx"),
+        ("大中華新聞", "greater_china_keyword_search", "final_report_trimmed.docx"),
+        ("本地新聞", "hong_kong_keyword_search", "final_report_trimmed.docx"),
         ("社評/指定作者社評", "web_scraping", "web_scraping_report.docx"),
     ]
     st_module.subheader("📦 Firebase 今日完成板塊")
@@ -105,7 +105,7 @@ def _generate_combined_report(fb_logger, st_module):
     intl_docs = [
         load_docx_from_firebase_date(
             fb_logger=fb_logger,
-            filename="final_report.docx",
+            filename="final_report_trimmed.docx",
             base_folder="international_keyword_search",
             date_str=ds,
         )
@@ -117,7 +117,7 @@ def _generate_combined_report(fb_logger, st_module):
     gc_docs = [
         load_docx_from_firebase_date(
             fb_logger=fb_logger,
-            filename="final_report.docx",
+            filename="final_report_trimmed.docx",
             base_folder="greater_china_keyword_search",
             date_str=ds,
         )
@@ -129,7 +129,7 @@ def _generate_combined_report(fb_logger, st_module):
     local_docs = [
         load_docx_from_firebase_date(
             fb_logger=fb_logger,
-            filename="final_report.docx",
+            filename="final_report_trimmed.docx",
             base_folder="hong_kong_keyword_search",
             date_str=ds,
         )
