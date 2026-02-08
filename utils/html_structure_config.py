@@ -14,6 +14,16 @@ HTML_STRUCTURE = {
             {"by": "xpath", "value": "//div[contains(@class,'toggle-collapse') and .//span[contains(normalize-space(),'媒體/作者')]]"},
             {"by": "css", "value": "div.toggle-collapse[data-toggle='collapse']"},
         ],
+        "media_author_panel_states": {
+            "collapsed": [
+                {"by": "css", "value": "div.toggle-collapse.collapsed[data-toggle='collapse']"},
+                {"by": "xpath", "value": "//div[@role='button' and contains(@class,'toggle-collapse') and contains(@class,'collapsed')]"},
+            ],
+            "expanded": [
+                {"by": "css", "value": "div.toggle-collapse[data-toggle='collapse']:not(.collapsed)"},
+                {"by": "xpath", "value": "//div[@role='button' and contains(@class,'toggle-collapse') and not(contains(@class,'collapsed'))]"},
+            ],
+        },
         "inputs": {
             "author": [
                 {"by": "css", "value": "input.form-control[data-placeholder='true'][placeholder='作者']"},

@@ -190,7 +190,35 @@ def _expand_media_author_panel(driver, wait, st=None):
     """
     Best-effort expand the 媒體/作者 panel for visibility.
     """
+    state_cfg = HTML_STRUCTURE.get("home", {}).get("media_author_panel_states") or {}
+    expanded_selectors = state_cfg.get("expanded") or []
+    collapsed_selectors = state_cfg.get("collapsed") or []
     toggle_selectors = HTML_STRUCTURE.get("home", {}).get("media_author_panel_toggles") or []
+
+    for sel in expanded_selectors:
+        by, selector = _selector_to_by(sel)
+        if not by or not selector:
+            continue
+        try:
+            el = driver.find_element(by, selector)
+            if el and el.is_displayed():
+                return True
+        except Exception:
+            continue
+
+    for sel in collapsed_selectors:
+        by, selector = _selector_to_by(sel)
+        if not by or not selector:
+            continue
+        try:
+            el = driver.find_element(by, selector)
+            if el and el.is_displayed():
+                driver.execute_script("arguments[0].click();", el)
+                time.sleep(0.6)
+                break
+        except Exception:
+            continue
+
     for sel in toggle_selectors:
         by, selector = _selector_to_by(sel)
         if not by or not selector:
@@ -200,6 +228,17 @@ def _expand_media_author_panel(driver, wait, st=None):
             driver.execute_script("arguments[0].click();", toggle)
             time.sleep(0.6)
             return True
+        except Exception:
+            continue
+
+    for sel in expanded_selectors:
+        by, selector = _selector_to_by(sel)
+        if not by or not selector:
+            continue
+        try:
+            el = driver.find_element(by, selector)
+            if el and el.is_displayed():
+                return True
         except Exception:
             continue
     if st:
