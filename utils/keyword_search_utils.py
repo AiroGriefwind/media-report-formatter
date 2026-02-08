@@ -19,6 +19,7 @@ from utils.wisers_utils import (
     wait_for_ajax_complete,
     go_back_to_search_form,
 )
+from utils.html_structure_config import HTML_STRUCTURE
 from utils.web_scraping_utils import (
     scrape_hover_popovers,
     perform_author_search,
@@ -58,11 +59,8 @@ GREATER_CHINA_KEYWORD_DEFAULT = (
     "貪污/芯片/新能源/神舟/金磚/中證監/巴拿馬運河/經濟政策"
 )
 
-MEDIA_FILTER_CONTAINER_SELECTOR = (
-    "#accordion-queryfilter > div.panel.panel-default.panel-queryfilter-scope-publisher "
-    "> div.panel-collapse.collapse.in > div > div:nth-child(3)"
-)
-MEDIA_FILTER_KEEP_LABELS = ["報刊", "綜合新聞", "香港"]
+MEDIA_FILTER_CONTAINER_SELECTOR = HTML_STRUCTURE["home"]["media_filter_container_selector"]
+MEDIA_FILTER_KEEP_LABELS = HTML_STRUCTURE["home"]["media_filter_keep_labels"]
 
 DEFAULT_WEB_SCRAPING_AUTHORS = ["李先知", "余錦賢", "傅流螢", "黄锦辉"]
 

@@ -32,6 +32,7 @@ from .wisers_utils import (
     inject_cjk_font_css,
     set_media_filters_in_panel,
 )
+from .html_structure_config import HTML_STRUCTURE
 
 from .config import WISERS_URL, MEDIA_NAME_MAPPINGS, EDITORIAL_MEDIA_ORDER, EDITORIAL_MEDIA_NAMES
 from utils.firebase_logging import get_logger
@@ -151,15 +152,49 @@ def _debug_tab_bar(driver, st):
 # MEDIA/AUTHOR PANEL HELPERS
 # =============================================================================
 
+def _get_home_inputs(key):
+    return (HTML_STRUCTURE.get("home", {}).get("inputs", {}) or {}).get(key, [])
+
+
+def _selector_to_by(selector_def):
+    by = (selector_def or {}).get("by")
+    value = (selector_def or {}).get("value")
+    if not by or not value:
+        return None, None
+    by_map = {
+        "css": By.CSS_SELECTOR,
+        "xpath": By.XPATH,
+        "id": By.ID,
+        "name": By.NAME,
+    }
+    return by_map.get(by), value
+
+
+def _find_first_visible_input(driver, wait, selector_defs, timeout=6):
+    for sel in selector_defs or []:
+        by, value = _selector_to_by(sel)
+        if not by or not value:
+            continue
+        try:
+            el = WebDriverWait(driver, timeout).until(
+                EC.visibility_of_element_located((by, value))
+            )
+            if el:
+                return el
+        except Exception:
+            continue
+    return None
+
+
 def _expand_media_author_panel(driver, wait, st=None):
     """
     Best-effort expand the 媒體/作者 panel for visibility.
     """
-    toggle_selectors = [
-        (By.XPATH, "//div[contains(@class,'toggle-collapse') and .//span[contains(normalize-space(),'媒體/作者')]]"),
-        (By.CSS_SELECTOR, "div.toggle-collapse[data-toggle='collapse']"),
-    ]
-    for by, selector in toggle_selectors:
+    toggle_selectors = HTML_STRUCTURE.get("home", {}).get("media_author_panel_toggles") or []
+    for sel in toggle_selectors:
+        by, selector = _selector_to_by(sel)
+        if not by or not selector:
+            continue
         try:
             toggle = wait.until(EC.element_to_be_clickable((by, selector)))
             driver.execute_script("arguments[0].click();", toggle)
@@ -172,54 +207,19 @@ def _expand_media_author_panel(driver, wait, st=None):
     return False
 
 
-def _try_select_hk_papers(driver, wait, st=None):
+def _apply_media_presets(driver, wait, st=None):
     """
-    Best-effort pick the '各大香港報章' media group if it exists.
-    Never raises; returns True when a selection click happened.
+    Apply keyword-search media presets: 報刊 / 綜合新聞 / 香港.
     """
-    label_xpaths = [
-        "//label[span[normalize-space(text())='各大香港報章']]",
-        "//label[span[contains(normalize-space(text()),'香港') and contains(normalize-space(text()),'報章')]]",
-        "//label[contains(normalize-space(.),'香港報章') or contains(normalize-space(.),'各大香港報章')]",
-    ]
-
-    # Try dropdown-based selection first
-    dropdown_selectors = [
-        "button.btn-naked.dropdown-toggle[data-toggle='dropdown']",
-        "button.dropdown-toggle[data-toggle='dropdown']",
-        "button.dropdown-toggle",
-    ]
-    for selector in dropdown_selectors:
-        try:
-            toggles = driver.find_elements(By.CSS_SELECTOR, selector)
-        except Exception:
-            toggles = []
-        for toggle in toggles:
-            try:
-                if not toggle.is_displayed():
-                    continue
-                driver.execute_script("arguments[0].click();", toggle)
-                time.sleep(0.6)
-                for xpath in label_xpaths:
-                    try:
-                        label = WebDriverWait(driver, 3).until(
-                            EC.element_to_be_clickable((By.XPATH, xpath))
-                        )
-                        driver.execute_script("arguments[0].click();", label)
-                        time.sleep(0.6)
-                        return True
-                    except Exception:
-                        continue
-            except Exception:
-                continue
-
-    # Fallback: try media filter panel checkboxes
     try:
+        keep_labels = HTML_STRUCTURE.get("home", {}).get("media_filter_keep_labels") or []
+        container_selector = HTML_STRUCTURE.get("home", {}).get("media_filter_container_selector")
         result = set_media_filters_in_panel(
             driver=driver,
             wait=wait,
             st_module=st,
-            keep_labels=["各大香港報章"],
+            keep_labels=keep_labels,
+            container_selector=container_selector,
         )
         if result:
             return True
@@ -227,7 +227,7 @@ def _try_select_hk_papers(driver, wait, st=None):
         pass
 
     if st:
-        st.warning("未找到『各大香港報章』选项，将继续搜索。")
+        st.warning("未能套用媒體預設（報刊/綜合新聞/香港），将继续搜索。")
     return False
 
 
@@ -246,22 +246,11 @@ def perform_author_search(**kwargs):
     if watchdog:
         watchdog.beat()
     _expand_media_author_panel(driver, wait, st)
-    _try_select_hk_papers(driver, wait, st)
+    _apply_media_presets(driver, wait, st)
 
-    author_input = None
-    input_selectors = [
-        (By.CSS_SELECTOR, 'input.form-control[placeholder="作者"]'),
-        (By.CSS_SELECTOR, 'input[placeholder*="作者"]'),
-        (By.CSS_SELECTOR, 'input[aria-label*="作者"]'),
-        (By.XPATH, "//label[contains(normalize-space(.),'作者')]//input"),
-    ]
-    for by, selector in input_selectors:
-        try:
-            author_input = wait.until(EC.visibility_of_element_located((by, selector)))
-            if author_input:
-                break
-        except Exception:
-            continue
+    author_input = _find_first_visible_input(
+        driver, wait, _get_home_inputs("author"), timeout=8
+    )
     if not author_input:
         raise NoSuchElementException("Could not locate author input field.")
 
@@ -672,22 +661,15 @@ def run_scmp_editorial_task(**kwargs):
     st = kwargs.get('st_module')
 
     _expand_media_author_panel(driver, wait, st)
-    _try_select_hk_papers(driver, wait, st)
+    _apply_media_presets(driver, wait, st)
 
-    author_input = None
-    input_selectors = [
-        (By.CSS_SELECTOR, 'input.form-control[placeholder="欄目"]'),
-        (By.CSS_SELECTOR, 'input[placeholder*="欄目"]'),
-        (By.CSS_SELECTOR, 'input[aria-label*="欄目"]'),
-        (By.XPATH, "//label[contains(normalize-space(.),'欄目')]//input"),
-    ]
-    for by, selector in input_selectors:
-        try:
-            author_input = wait.until(EC.visibility_of_element_located((by, selector)))
-            if author_input:
-                break
-        except Exception:
-            continue
+    author_input = _find_first_visible_input(
+        driver, wait, _get_home_inputs("column"), timeout=8
+    )
+    if not author_input:
+        author_input = _find_first_visible_input(
+            driver, wait, _get_home_inputs("author"), timeout=5
+        )
     if not author_input:
         raise NoSuchElementException("Could not locate column input field.")
 
