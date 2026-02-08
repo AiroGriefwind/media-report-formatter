@@ -906,6 +906,42 @@ def wait_for_results_panel_ready(driver, wait=None, st_module=None, timeout=20):
             WebDriverWait(driver, timeout).until(_progress_done)
         except Exception:
             pass
+        # Wait for any common loading/spinner overlays to disappear
+        try:
+            loading_selectors = [
+                "div.tab-content-preloader",
+                "div.progress.progress__pageTop",
+                "div.loading",
+                "div.loading-mask",
+                "div.loading-overlay",
+                "div.page-loading",
+                "div.center-loading",
+                "div.spinner",
+                "div.spinner-border",
+                "div.loader",
+                "div.ant-spin",
+                "div.ant-spin-spinning",
+                "div.block-ui",
+                "div.mask",
+            ]
+
+            def _has_visible_loading(d):
+                for sel in loading_selectors:
+                    try:
+                        els = d.find_elements(By.CSS_SELECTOR, sel)
+                    except Exception:
+                        els = []
+                    for el in els:
+                        try:
+                            if el.is_displayed():
+                                return True
+                        except Exception:
+                            continue
+                return False
+
+            WebDriverWait(driver, timeout).until(lambda d: not _has_visible_loading(d))
+        except Exception:
+            pass
         # Ensure actual content container appears
         try:
             WebDriverWait(driver, timeout).until(

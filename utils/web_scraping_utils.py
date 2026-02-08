@@ -29,6 +29,7 @@ from .wisers_utils import (
     scroll_to_load_all_content,
     wait_for_ajax_complete,
     wait_for_enabled_search_button,
+    wait_for_results_panel_ready,
     inject_cjk_font_css,
     set_media_filters_in_panel,
 )
@@ -314,6 +315,18 @@ def ensure_search_results_ready(**kwargs):
         watchdog = kwargs.get("watchdog")
         if watchdog:
             watchdog.beat()
+
+        # Ensure results panel progress bar/preloader is done before checks
+        try:
+            wait_for_results_panel_ready(
+                driver=driver,
+                wait=kwargs.get("wait"),
+                st_module=st,
+                timeout=20,
+            )
+            wait_for_ajax_complete(driver, timeout=10)
+        except Exception:
+            pass
 
         headline_cond = EC.element_to_be_clickable(
             (By.CSS_SELECTOR, "div.list-group .list-group-item h4 a")
