@@ -190,6 +190,10 @@ def _get_home_inputs(key):
     return (HTML_STRUCTURE.get("home", {}).get("inputs", {}) or {}).get(key, [])
 
 
+def _get_edit_search_selectors(key):
+    return (HTML_STRUCTURE.get("edit_search", {}) or {}).get(key, [])
+
+
 def _selector_to_by(selector_def):
     by = (selector_def or {}).get("by")
     value = (selector_def or {}).get("value")
@@ -218,6 +222,54 @@ def _find_first_visible_input(driver, wait, selector_defs, timeout=6):
         except Exception:
             continue
     return None
+
+
+def _is_edit_search_modal_open(driver):
+    title_selectors = _get_edit_search_selectors("modal_title")
+    for sel in title_selectors:
+        by, selector = _selector_to_by(sel)
+        if not by or not selector:
+            continue
+        try:
+            els = driver.find_elements(by, selector)
+        except Exception:
+            els = []
+        for el in els:
+            try:
+                if not el.is_displayed():
+                    continue
+                txt = (el.text or "").strip()
+                if "编辑搜索" in txt or "編輯搜索" in txt:
+                    return True
+            except Exception:
+                continue
+    return False
+
+
+def _close_edit_search_modal(driver, st=None):
+    if not _is_edit_search_modal_open(driver):
+        return False
+    close_selectors = _get_edit_search_selectors("close_button")
+    for sel in close_selectors:
+        by, selector = _selector_to_by(sel)
+        if not by or not selector:
+            continue
+        try:
+            btns = driver.find_elements(by, selector)
+        except Exception:
+            btns = []
+        for btn in btns:
+            try:
+                if not btn.is_displayed():
+                    continue
+                driver.execute_script("arguments[0].click();", btn)
+                time.sleep(0.6)
+                return True
+            except Exception:
+                continue
+    if st:
+        st.warning("未能關閉編輯搜索彈窗，將嘗試繼續流程。")
+    return False
 
 
 def _expand_media_author_panel(driver, wait, st=None):
@@ -701,6 +753,9 @@ def run_newspaper_editorial_task(**kwargs):
     wait = kwargs.get('wait')
     st = kwargs.get('st_module')
 
+    if _is_edit_search_modal_open(driver):
+        _close_edit_search_modal(driver, st)
+
     dropdown_toggle = wait.until(
         EC.element_to_be_clickable((By.CSS_SELECTOR, "li.dropdown-usersavedquery > a.dropdown-toggle")))
     dropdown_toggle.click()
@@ -710,6 +765,8 @@ def run_newspaper_editorial_task(**kwargs):
     edit_saved_search_btn.click()
     wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#modal-saved-search-ws6")))
     time.sleep(3)
+    if _is_edit_search_modal_open(driver):
+        _close_edit_search_modal(driver, st)
     editorial_item = wait.until(
         EC.element_to_be_clickable((By.XPATH, "//ul[@class='list-group']//h5[text()='社評']/ancestor::li")))
     editorial_item.click()
@@ -735,6 +792,8 @@ def run_newspaper_editorial_task(**kwargs):
                 }
             }""")
     wait.until(EC.invisibility_of_element_located((By.CSS_SELECTOR, "#modal-saved-search-ws6")))
+    if _is_edit_search_modal_open(driver):
+        _close_edit_search_modal(driver, st)
 
     if wait_for_search_results(driver=driver, wait=wait, st_module=st):
         # NEW: Scroll to load all content, then also wait for AJAX to finish

@@ -51,5 +51,51 @@ HTML_STRUCTURE = {
         },
     },
     "search_results": {},
-    "edit_search": {},
+    "edit_search": {
+        "modal_title": [
+            {"by": "css", "value": "h4.modal-title"},
+        ],
+        "tag_editor": [
+            {"by": "css", "value": "ul.tag-editor"},
+        ],
+        "close_button": [
+            {"by": "css", "value": "button.close[data-dismiss='modal']"},
+            {"by": "xpath", "value": "//button[@data-dismiss='modal' and contains(@class,'close')]"},
+        ],
+        "media_author_panel_states": {
+            "collapsed": [
+                {"by": "css", "value": "div.toggle-collapse.collapsed[data-toggle='collapse']"},
+                {"by": "xpath", "value": "//div[@role='button' and contains(@class,'toggle-collapse') and contains(@class,'collapsed')]"},
+            ],
+            "expanded": [
+                {"by": "css", "value": "div.toggle-collapse[data-toggle='collapse']:not(.collapsed)"},
+                {"by": "xpath", "value": "//div[@role='button' and contains(@class,'toggle-collapse') and not(contains(@class,'collapsed'))]"},
+            ],
+        },
+        "inputs": {
+            "author": [
+                {"by": "css", "value": "input.form-control[data-placeholder='true'][placeholder='作者']"},
+                {"by": "css", "value": "input.form-control[placeholder='作者']"},
+            ],
+            "column": [
+                {"by": "css", "value": "input.form-control[data-placeholder='true'][placeholder='栏目']"},
+                {"by": "css", "value": "input.form-control[placeholder='栏目']"},
+                {"by": "css", "value": "input.form-control[placeholder='欄目']"},
+            ],
+            "page": [
+                {"by": "css", "value": "input.form-control[data-placeholder='true'][placeholder='版面']"},
+                {"by": "css", "value": "input.form-control[placeholder='版面']"},
+            ],
+        },
+    },
+    "timeout": {
+        "url": "https://wisesearch6.wisers.net/wevo/timeout",
+        "title": [
+            {"by": "css", "value": "h4"},
+        ],
+        "logout_button": [
+            {"by": "css", "value": "button.btn.btn-primary.btn-block"},
+            {"by": "xpath", "value": "//button[contains(@class,'btn-primary') and contains(@class,'btn-block') and contains(.,'登出')]"},
+        ],
+    },
 }
