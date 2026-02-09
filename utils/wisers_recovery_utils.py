@@ -188,11 +188,16 @@ class InactivityWatchdog:
                 elapsed = time.monotonic() - self._last_activity
             if elapsed >= self.timeout_seconds:
                 self.timed_out = True
-                if self.st_module:
-                    self.st_module.warning("⏱️ 超過 1 分鐘無反應，已觸發復位。")
+                # Do not call st_module from this thread – causes "missing ScriptRunContext"
+                # and can block the main run / cause 503 health-check timeouts.
+                if self.logger:
+                    try:
+                        self.logger.info("⏱️ 超過 1 分鐘無反應，已觸發復位。")
+                    except Exception:
+                        pass
                 _capture_inactivity_screenshot(
                     driver=self.driver,
-                    st_module=self.st_module,
+                    st_module=None,  # never touch Streamlit from background thread
                     logger=self.logger,
                     screenshot_dir=self.screenshot_dir,
                     reason="inactivity_timeout",

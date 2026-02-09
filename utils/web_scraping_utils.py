@@ -64,10 +64,11 @@ def _detect_no_article_banner(driver):
         return False
 
 
-def _results_are_empty(driver) -> bool:
+def _results_are_empty(driver, verbose=True) -> bool:
     """
     Return True if all main (top-level, non-dropdown) tab counters show "(0)".
-    Logs each tab/counter for diagnostics.
+    Returns False if the results-page tab bar is not found (e.g. wrong page or not loaded).
+    When verbose, logs each tab/counter for diagnostics.
     """
     try:
         bar = driver.find_element(
@@ -79,30 +80,31 @@ def _results_are_empty(driver) -> bool:
 
         total = 0
         zeros = 0
-        debug_lines = []
+        debug_lines = [] if verbose else None
         for idx, li in enumerate(items):
-            # Find the first <span>(n)</span> under <a>
             s_list = li.find_elements(By.XPATH, "./a/span")
-            txts = [s.text for s in s_list]
             found = False
             for s in s_list:
                 txt = s.text.strip()
-                debug_lines.append(f"Tab idx={idx}, label={li.text!r}, span_text={txt!r}")
+                if debug_lines is not None:
+                    debug_lines.append(f"Tab idx={idx}, label={li.text!r}, span_text={txt!r}")
                 if txt.startswith("(") and txt.endswith(")"):
                     total += 1
                     if txt == "(0)":
                         zeros += 1
                     found = True
                     break
-            if not found:
+            if not found and debug_lines is not None:
                 debug_lines.append(f"Tab idx={idx} had no <a><span> matching (n)!")
-        print("\n".join(debug_lines))
-        print(f"Tab counter summary: {zeros} of {total} tabs are (0)")
-        print(f"Returning from _results_are_empty: {total > 0 and total == zeros}")
+        if debug_lines:
+            print("\n".join(debug_lines))
+            print(f"Tab counter summary: {zeros} of {total} tabs are (0)")
+            print(f"Returning from _results_are_empty: {total > 0 and total == zeros}")
         return total > 0 and total == zeros
 
     except Exception as e:
-        print("Error in _results_are_empty:", e)
+        if verbose:
+            print("Error in _results_are_empty:", e)
         return False
 
 
@@ -418,34 +420,34 @@ def ensure_search_results_ready(**kwargs):
         )
 
         def _ready(d):
+            # Only run Wisers results-page checks when we're on a Wisers page.
+            # Avoids NoSuchElementException spam and 503 when driver is on login/other page.
+            try:
+                url = (d.current_url or "")
+                if "wisers" not in url.lower():
+                    return False
+            except Exception:
+                return False
             ready_headline = False
             try:
                 ready_headline = headline_cond(d)
-            except Exception as e:
-                print("ready_headline EXCEPTION:", e)
+            except Exception:
+                pass
+            ready_empty = False
             try:
-                ready_empty = _results_are_empty(d)
-            except Exception as e:
-                print("ready_empty EXCEPTION:", e)
-                ready_empty = False
+                ready_empty = _results_are_empty(d, verbose=False)
+            except Exception:
+                pass
+            ready_no_article = False
             try:
                 ready_no_article = _detect_no_article_banner(d)
-            except Exception as e:
-                print("ready_no_article EXCEPTION:", e)
-                ready_no_article = False
-            print("===================")
-            print(f"_ready: headline={ready_headline} zeroed_tabs={ready_empty} no_article_banner={ready_no_article}")
-            print("===================")
+            except Exception:
+                pass
             return ready_headline or ready_empty or ready_no_article
-
-
-
 
         WebDriverWait(driver, 12).until(_ready)
 
-        
-
-        empty = _results_are_empty(driver)
+        empty = _results_are_empty(driver, verbose=True)
         noarticle = _detect_no_article_banner(driver)
 
         if st:
