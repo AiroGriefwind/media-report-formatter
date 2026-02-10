@@ -53,7 +53,11 @@ HTML_STRUCTURE = {
     "search_results": {},
     "edit_search": {
         "modal_title": [
-            {"by": "css", "value": "h4.modal-title"},
+            {"by": "css", "value": "div.modal-header > h4.modal-title"},
+            {"by": "css", "value": "div.modal-header h4.modal-title"},
+            {"by": "xpath", "value": "//div[contains(@class,'modal-header')]//h4[contains(@class,'modal-title') and normalize-space()='编辑搜索']"},
+            {"by": "xpath", "value": "//div[contains(@class,'modal-header')]//h4[contains(@class,'modal-title') and contains(normalize-space(),'编辑搜索')]"},
+            {"by": "xpath", "value": "//div[contains(@class,'modal-header')]//h4[contains(@class,'modal-title') and contains(normalize-space(),'編輯搜索')]"},
         ],
         "tag_editor": [
             {"by": "css", "value": "ul.tag-editor"},

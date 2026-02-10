@@ -3,6 +3,7 @@ import os
 import time
 import tempfile
 import streamlit as st
+from selenium.webdriver.common.by import By
 
 from utils.wisers_utils import (
     set_date_range_period,
@@ -23,6 +24,7 @@ from utils.web_scraping_utils import (
     scrape_hover_popovers,
     perform_author_search,
     ensure_search_results_ready,
+    has_clickable_first_result,
     click_first_result,
     scrape_author_article_content,
     run_newspaper_editorial_task,
@@ -31,6 +33,7 @@ from utils.web_scraping_utils import (
 )
 from utils import international_news_utils as intl_utils
 from utils.firebase_logging import get_logger
+from utils.wisers_recovery_utils import reset_wisers_light
 
 parse_metadata = intl_utils.parse_metadata
 extract_news_id_from_html = intl_utils.extract_news_id_from_html
@@ -62,6 +65,36 @@ MEDIA_FILTER_CONTAINER_SELECTOR = HTML_STRUCTURE["home"]["media_filter_container
 MEDIA_FILTER_KEEP_LABELS = HTML_STRUCTURE["home"]["media_filter_keep_labels"]
 
 DEFAULT_WEB_SCRAPING_AUTHORS = ["李先知", "余錦賢", "傅流螢", "黄锦辉"]
+
+
+def _detect_page_by_html(driver) -> str:
+    try:
+        if driver.find_elements(By.CSS_SELECTOR, 'input[data-qa-ci="groupid"]'):
+            return "login"
+        if driver.find_elements(By.CSS_SELECTOR, "button#toggle-query-execute.btn.btn-primary"):
+            return "home_search"
+        if driver.find_elements(By.CSS_SELECTOR, "div.article-detail"):
+            return "article_detail"
+        if driver.find_elements(By.CSS_SELECTOR, "ul.nav-tabs.navbar-nav-pub"):
+            return "search_results"
+    except Exception:
+        return "unknown"
+    return "unknown"
+
+
+def _rescue_back_to_home_search(driver, wait, st_module=None):
+    page = _detect_page_by_html(driver)
+    if st_module:
+        st_module.info(f"🧭 當前頁面判斷：{page}。先嘗試返回首頁搜索頁。")
+    go_back_to_search_form(driver=driver, wait=wait, st_module=st_module)
+    page_after = _detect_page_by_html(driver)
+    if page_after != "home_search":
+        driver.get("https://wisesearch6.wisers.net/wevo/home")
+        time.sleep(1.0)
+        page_after = _detect_page_by_html(driver)
+    if page_after != "home_search":
+        raise RuntimeError("無法恢復到首頁搜索頁。")
+    return True
 
 
 def _get_credentials(prefix="hkkw"):
@@ -192,7 +225,12 @@ def run_web_scraping_pre_task(
                 driver=driver, wait=wait, st_module=st_module, watchdog=watchdog
             )
 
-            if not has_results:
+            if not has_results or not has_clickable_first_result(
+                driver=driver,
+                wait=wait,
+                st_module=st_module,
+                timeout=4,
+            ):
                 author_articles_data[author] = {"title": "無法找到文章", "content": ""}
                 go_back_to_search_form(driver=driver, wait=wait, st_module=st_module)
                 continue
@@ -210,14 +248,26 @@ def run_web_scraping_pre_task(
                 if st_module:
                     st_module.warning(f"⚠️ 點擊首條結果失敗，嘗試重置並重試：{e}")
                 try:
-                    reset_wisers_light(
+                    _rescue_back_to_home_search(
                         driver=driver,
                         wait=wait,
                         st_module=st_module,
-                        logger=fb_logger,
                     )
                 except Exception:
-                    pass
+                    try:
+                        reset_wisers_light(
+                            driver=driver,
+                            wait=wait,
+                            st_module=st_module,
+                            logger=fb_logger,
+                        )
+                        _rescue_back_to_home_search(
+                            driver=driver,
+                            wait=wait,
+                            st_module=st_module,
+                        )
+                    except Exception:
+                        pass
                 perform_author_search(
                     driver=driver,
                     wait=wait,
@@ -228,7 +278,12 @@ def run_web_scraping_pre_task(
                 has_results = ensure_search_results_ready(
                     driver=driver, wait=wait, st_module=st_module, watchdog=watchdog
                 )
-                if not has_results:
+                if not has_results or not has_clickable_first_result(
+                    driver=driver,
+                    wait=wait,
+                    st_module=st_module,
+                    timeout=4,
+                ):
                     author_articles_data[author] = {"title": "無法找到文章", "content": ""}
                     go_back_to_search_form(driver=driver, wait=wait, st_module=st_module)
                     continue

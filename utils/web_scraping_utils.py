@@ -187,6 +187,23 @@ def _results_are_empty_with_banner(driver) -> bool:
         return False
 
 
+def has_clickable_first_result(driver, wait, st_module=None, timeout=4) -> bool:
+    """True only when results are non-empty and first headline is clickable."""
+    try:
+        wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st_module, timeout=20)
+    except Exception:
+        pass
+    if _results_are_empty_with_banner(driver):
+        return False
+    try:
+        WebDriverWait(driver, timeout).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "div.list-group .list-group-item h4 a"))
+        )
+        return True
+    except Exception:
+        return False
+
+
 def _get_home_inputs(key):
     return (HTML_STRUCTURE.get("home", {}).get("inputs", {}) or {}).get(key, [])
 
