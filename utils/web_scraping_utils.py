@@ -389,6 +389,7 @@ def perform_author_search(**kwargs):
     author_input.send_keys(author_name)
     search_button = wait_for_enabled_search_button(driver, timeout=10, st_module=st)
     search_button.click()
+    wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
     if watchdog:
         watchdog.beat()
 
@@ -526,6 +527,8 @@ def scrape_hover_popovers(**kwargs):
     previews = []
 
     try:
+        wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
+        ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
         elements = driver.find_elements(By.CSS_SELECTOR, "span[rel='popover-article']")
         if isinstance(max_items, int) and max_items > 0:
             elements = elements[:max_items]
@@ -825,6 +828,7 @@ def run_newspaper_editorial_task(**kwargs):
                     buttons[i].click(); break;
                 }
             }""")
+    wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
     if _is_edit_search_modal_open(driver):
         try:
             wait.until(lambda d: not _is_edit_search_modal_open(d))
@@ -883,6 +887,7 @@ def run_scmp_editorial_task(**kwargs):
     author_input.send_keys("editorial")
     search_button = wait_for_enabled_search_button(driver, timeout=10, st_module=st)
     search_button.click()
+    wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
 
     # Scroll and wait for AJAX after search to maximize completeness
     scroll_to_load_all_content(driver=driver, st_module=st)

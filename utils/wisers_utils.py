@@ -23,6 +23,7 @@ from selenium.webdriver.chrome.webdriver import WebDriver
 from twocaptcha import TwoCaptcha
 
 from .config import WISERS_URL
+from .html_structure_config import HTML_STRUCTURE
 
 from utils.firebase_logging import get_logger
 
@@ -1632,7 +1633,33 @@ def search_title_from_home(**kwargs):
             st.warning(f"关键词写入失败，tag-editor 状态：{state}")
         raise Exception("搜索关键词未写入 tag-editor。")
 
+    wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
     dismiss_blocking_modals(driver, wait=wait, st_module=st)
+
+    def _wait_for_edit_search_modal_title() -> bool:
+        selectors = (HTML_STRUCTURE.get("edit_search", {}) or {}).get("modal_title") or []
+        by_map = {
+            "css": By.CSS_SELECTOR,
+            "xpath": By.XPATH,
+            "id": By.ID,
+            "name": By.NAME,
+        }
+        for sel in selectors:
+            by = by_map.get((sel or {}).get("by"))
+            value = (sel or {}).get("value")
+            if not by or not value:
+                continue
+            try:
+                el = WebDriverWait(driver, 6).until(
+                    EC.visibility_of_element_located((by, value))
+                )
+                if el and el.is_displayed():
+                    return True
+            except Exception:
+                continue
+        if st:
+            st.warning("未检测到『编辑搜索』弹窗标题，可能未成功打开。")
+        return False
     try:
         inject_cjk_font_css(driver, st_module=st)
         if st:
@@ -1654,6 +1681,7 @@ def search_title_from_home(**kwargs):
         pass
     search_button = wait_for_enabled_search_button(driver, timeout=10, st_module=st)
     search_button.click()
+    wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
     return True
 
 
@@ -1671,7 +1699,34 @@ def search_title_via_edit_search_modal(**kwargs):
         or os.path.join(".", "artifacts", "screenshots")
     )
 
+    wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
     dismiss_blocking_modals(driver, wait=wait, st_module=st)
+
+    def _wait_for_edit_search_modal_title() -> bool:
+        selectors = (HTML_STRUCTURE.get("edit_search", {}) or {}).get("modal_title") or []
+        by_map = {
+            "css": By.CSS_SELECTOR,
+            "xpath": By.XPATH,
+            "id": By.ID,
+            "name": By.NAME,
+        }
+        for sel in selectors:
+            by = by_map.get((sel or {}).get("by"))
+            value = (sel or {}).get("value")
+            if not by or not value:
+                continue
+            try:
+                el = WebDriverWait(driver, 6).until(
+                    EC.visibility_of_element_located((by, value))
+                )
+                if el and el.is_displayed():
+                    return True
+            except Exception:
+                continue
+        if st:
+            st.warning("未检测到『编辑搜索』弹窗标题，可能未成功打开。")
+        return False
+
     modal_search_btn = None
     try:
         modal_search_btn = wait.until(
@@ -1694,6 +1749,8 @@ def search_title_via_edit_search_modal(**kwargs):
         modal_search_btn = wait.until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, "button.edit-search-button-track"))
         )
+    if not _wait_for_edit_search_modal_title():
+        raise Exception("未能确认『编辑搜索』弹窗标题已出现。")
     modal_root = modal_search_btn.find_element(By.XPATH, "./ancestor::div[contains(@class,'modal')]")
 
     editor_container = None
@@ -1730,7 +1787,8 @@ def search_title_via_edit_search_modal(**kwargs):
     except Exception:
         pass
     modal_search_btn.click()
-    time.sleep(1.5)
+    wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
+    time.sleep(1.0)
     return True
 
 # =============================================================================
