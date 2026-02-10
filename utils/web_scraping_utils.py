@@ -287,6 +287,37 @@ def _is_home_search_page(driver):
     return False
 
 
+def _is_results_page(driver):
+    try:
+        bars = driver.find_elements(By.CSS_SELECTOR, "ul.nav-tabs.navbar-nav-pub")
+        for bar in bars:
+            try:
+                if bar.is_displayed():
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        return False
+    return False
+
+
+def _is_timeout_page(driver):
+    try:
+        url = (driver.current_url or "").lower()
+    except Exception:
+        url = ""
+    if "timeout" in url:
+        return True
+    try:
+        if driver.find_elements(By.CSS_SELECTOR, "button.btn.btn-primary.btn-block"):
+            return True
+        if driver.find_elements(By.XPATH, "//h3[contains(.,'登入逾时') or contains(.,'登录逾时') or contains(.,'重新登入')]"):
+            return True
+    except Exception:
+        return False
+    return False
+
+
 def _capture_edit_search_fallback_screenshot(driver, st=None, logger=None, screenshot_dir=None):
     if not driver:
         return
@@ -325,6 +356,8 @@ def _fallback_to_home_search_page(driver, wait, st=None):
         )
     except Exception:
         pass
+    if _is_timeout_page(driver):
+        raise Exception("fallback 途中进入 timeout 页面（会话失效）。")
     if not _is_home_search_page(driver):
         raise Exception("fallback 返回首页失败：未检测到首页 html 特征。")
     return True
@@ -842,7 +875,8 @@ def run_newspaper_editorial_task(**kwargs):
     logger = kwargs.get("logger")
     screenshot_dir = kwargs.get("screenshot_dir")
 
-    if not _is_edit_search_modal_open(driver):
+    on_results_page = _is_results_page(driver)
+    if on_results_page and not _is_edit_search_modal_open(driver):
         edit_btn = None
         try:
             edit_btn = wait.until(
@@ -869,7 +903,7 @@ def run_newspaper_editorial_task(**kwargs):
                 continue
 
     modal_open = _is_edit_search_modal_open(driver)
-    if not modal_open:
+    if on_results_page and not modal_open:
         _capture_edit_search_fallback_screenshot(
             driver=driver,
             st=st,
@@ -877,13 +911,20 @@ def run_newspaper_editorial_task(**kwargs):
             screenshot_dir=screenshot_dir,
         )
         _fallback_to_home_search_page(driver=driver, wait=wait, st=st)
+    elif (not on_results_page) and (not _is_home_search_page(driver)):
+        # Unknown intermediate page, normalize to home before setting conditions.
+        if st:
+            st.info("當前不在結果頁，先返回首頁搜索頁再設定社評搜索條件。")
+        _fallback_to_home_search_page(driver=driver, wait=wait, st=st)
 
     _expand_media_author_panel(driver, wait, st)
     _apply_media_presets(driver, wait, st)
 
-    column_input = _find_first_visible_input(
-        driver, wait, _get_edit_search_inputs("column"), timeout=8
-    )
+    column_input = None
+    if modal_open:
+        column_input = _find_first_visible_input(
+            driver, wait, _get_edit_search_inputs("column"), timeout=8
+        )
     if not column_input:
         column_input = _find_first_visible_input(
             driver, wait, _get_home_inputs("column"), timeout=5
@@ -893,28 +934,32 @@ def run_newspaper_editorial_task(**kwargs):
     column_input.clear()
     column_input.send_keys("社評 OR editorial")
 
-    search_btn = None
-    selectors = [
-        (By.CSS_SELECTOR, "button.edit-search-button-track"),
-        (By.XPATH, "//div[contains(@class,'modal-footer')]//button[text()='搜索']"),
-        (By.XPATH, "//button[normalize-space(text())='搜索']"),
-    ]
-    for selector_type, selector in selectors:
-        try:
-            search_btn = wait.until(EC.element_to_be_clickable((selector_type, selector)))
-            break
-        except TimeoutException:
-            continue
-    if search_btn:
-        search_btn.click()
+    if modal_open:
+        search_btn = None
+        selectors = [
+            (By.CSS_SELECTOR, "button.edit-search-button-track"),
+            (By.XPATH, "//div[contains(@class,'modal-footer')]//button[text()='搜索']"),
+            (By.XPATH, "//button[normalize-space(text())='搜索']"),
+        ]
+        for selector_type, selector in selectors:
+            try:
+                search_btn = wait.until(EC.element_to_be_clickable((selector_type, selector)))
+                break
+            except TimeoutException:
+                continue
+        if search_btn:
+            search_btn.click()
+        else:
+            driver.execute_script("""
+                var buttons = document.querySelectorAll('div.modal-footer button');
+                for (var i = 0; i < buttons.length; i++) {
+                    if (buttons[i].textContent.trim() === '搜索') {
+                        buttons[i].click(); break;
+                    }
+                }""")
     else:
-        driver.execute_script("""
-            var buttons = document.querySelectorAll('div.modal-footer button');
-            for (var i = 0; i < buttons.length; i++) {
-                if (buttons[i].textContent.trim() === '搜索') {
-                    buttons[i].click(); break;
-                }
-            }""")
+        home_search_btn = wait_for_enabled_search_button(driver, timeout=10, st_module=st)
+        home_search_btn.click()
     wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
     if _is_edit_search_modal_open(driver):
         try:
