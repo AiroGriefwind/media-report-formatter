@@ -10,7 +10,7 @@ import tempfile
 from datetime import datetime
 from docx import Document
 
-from .web_scraping_utils import retry_step, wait_for_search_results, scroll_to_load_all_content, wait_for_ajax_complete
+from .web_scraping_utils import retry_step, wait_for_search_results, wait_for_ajax_complete
 from .document_utils import setup_document_fonts, add_end_marker
 from .config import MEDIA_NAME_MAPPINGS
 
@@ -29,7 +29,6 @@ from selenium.common.exceptions import (
 from .wisers_utils import (
     retry_step, 
     wait_for_search_results, 
-    scroll_to_load_all_content, 
     wait_for_ajax_complete,
     ensure_results_list_visible,
     wait_for_results_panel_ready,
@@ -230,8 +229,6 @@ def run_saved_search_task(**kwargs):
                     st.warning("⚠️ 未检测到结果页顶部栏目栏（总览/报刊等），可能仍在加载中。")
             wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
             ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
-            # Scroll to load all content and wait for AJAX
-            scroll_to_load_all_content(driver=driver, st_module=st)
             wait_for_ajax_complete(driver, timeout=10)
 
             # Get all article links for scraping

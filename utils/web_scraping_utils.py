@@ -26,7 +26,6 @@ from datetime import datetime
 from .wisers_utils import (
     retry_step,
     wait_for_search_results,
-    scroll_to_load_all_content,
     wait_for_ajax_complete,
     wait_for_enabled_search_button,
     wait_for_results_panel_ready,
@@ -250,6 +249,68 @@ def _is_edit_search_modal_open(driver):
             except Exception:
                 continue
     return False
+
+
+def _is_home_search_page(driver):
+    try:
+        for sel in (
+            "button#toggle-query-execute.btn.btn-primary",
+            "div.app-query-input",
+            "#accordion-queryfilter",
+        ):
+            elements = driver.find_elements(By.CSS_SELECTOR, sel)
+            for el in elements:
+                try:
+                    if el.is_displayed():
+                        return True
+                except Exception:
+                    continue
+    except Exception:
+        return False
+    return False
+
+
+def _capture_edit_search_fallback_screenshot(driver, st=None, logger=None, screenshot_dir=None):
+    if not driver:
+        return
+    screenshot_dir = screenshot_dir or os.getenv("WISERS_SCREENSHOT_DIR") or os.path.join(".", "artifacts", "screenshots")
+    try:
+        inject_cjk_font_css(driver, st_module=st)
+    except Exception:
+        pass
+    try:
+        img_bytes = driver.get_screenshot_as_png()
+        if st:
+            st.image(img_bytes, caption="🔎 编辑搜索弹窗未打开，执行 fallback 前截图")
+        os.makedirs(screenshot_dir, exist_ok=True)
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        fname = f"{ts}_edit_search_fallback.png"
+        local_fp = os.path.join(screenshot_dir, fname)
+        with open(local_fp, "wb") as f:
+            f.write(img_bytes)
+        up_logger = logger or (get_logger(st) if st else None)
+        if up_logger and hasattr(up_logger, "upload_screenshot_bytes"):
+            up_logger.upload_screenshot_bytes(img_bytes, filename=fname)
+    except Exception:
+        pass
+
+
+def _fallback_to_home_search_page(driver, wait, st=None):
+    if st:
+        st.warning("未能打开『编辑搜索』弹窗，执行 fallback：截图后返回首页重设搜索条件。")
+    try:
+        driver.get("https://wisesearch6.wisers.net/wevo/home")
+    except Exception:
+        pass
+    try:
+        (wait or WebDriverWait(driver, 15)).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "button#toggle-query-execute.btn.btn-primary"))
+        )
+    except Exception:
+        pass
+    if not _is_home_search_page(driver):
+        raise Exception("fallback 返回首页失败：未检测到首页 html 特征。")
+    return True
 
 
 def _close_edit_search_modal(driver, st=None):
@@ -761,6 +822,8 @@ def run_newspaper_editorial_task(**kwargs):
     driver = kwargs.get('driver')
     wait = kwargs.get('wait')
     st = kwargs.get('st_module')
+    logger = kwargs.get("logger")
+    screenshot_dir = kwargs.get("screenshot_dir")
 
     if not _is_edit_search_modal_open(driver):
         edit_btn = None
@@ -788,8 +851,15 @@ def run_newspaper_editorial_task(**kwargs):
             except Exception:
                 continue
 
-    if not _is_edit_search_modal_open(driver) and st:
-        st.warning("未能打开『编辑搜索』弹窗，将继续尝试直接设置搜索条件。")
+    modal_open = _is_edit_search_modal_open(driver)
+    if not modal_open:
+        _capture_edit_search_fallback_screenshot(
+            driver=driver,
+            st=st,
+            logger=logger,
+            screenshot_dir=screenshot_dir,
+        )
+        _fallback_to_home_search_page(driver=driver, wait=wait, st=st)
 
     _expand_media_author_panel(driver, wait, st)
     _apply_media_presets(driver, wait, st)
@@ -836,8 +906,6 @@ def run_newspaper_editorial_task(**kwargs):
             _close_edit_search_modal(driver, st)
 
     if wait_for_search_results(driver=driver, wait=wait, st_module=st):
-        # NEW: Scroll to load all content, then also wait for AJAX to finish
-        scroll_to_load_all_content(driver=driver, st_module=st)
         wait_for_ajax_complete(driver, timeout=10)
 
         # Now collect all results, with retries
@@ -889,8 +957,6 @@ def run_scmp_editorial_task(**kwargs):
     search_button.click()
     wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
 
-    # Scroll and wait for AJAX after search to maximize completeness
-    scroll_to_load_all_content(driver=driver, st_module=st)
     wait_for_ajax_complete(driver, timeout=10)
 
     if wait_for_search_results(driver=driver, wait=wait, st_module=st):

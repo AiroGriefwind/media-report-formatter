@@ -15,7 +15,6 @@ from utils.wisers_utils import (
     set_media_filters_in_panel,
     set_keyword_scope_checkboxes,
     inject_cjk_font_css,
-    scroll_to_load_all_content,
     wait_for_ajax_complete,
     go_back_to_search_form,
 )
@@ -536,7 +535,6 @@ def run_keyword_search_task(
             watchdog.resume()
         wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st_module)
         ensure_results_list_visible(driver=driver, wait=wait, st_module=st_module)
-        scroll_to_load_all_content(driver=driver, st_module=st_module)
         wait_for_ajax_complete(driver, timeout=10)
         return {"no_results": False}
     if watchdog:

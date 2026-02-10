@@ -731,18 +731,70 @@ def wait_for_ajax_complete(driver, timeout=10):
     except Exception:
         pass  # If jQuery not defined, just continue
 
+def _is_home_search_page(driver) -> bool:
+    """Detect whether current page looks like Wisers home search form."""
+    try:
+        home_signals = [
+            "button#toggle-query-execute.btn.btn-primary",
+            "div.app-query-input",
+            "#accordion-queryfilter",
+        ]
+        for sel in home_signals:
+            elements = driver.find_elements(By.CSS_SELECTOR, sel)
+            for el in elements:
+                try:
+                    if el.is_displayed():
+                        return True
+                except Exception:
+                    continue
+    except Exception:
+        return False
+    return False
+
 @retry_step
 def go_back_to_search_form(**kwargs):
-    """Return to main search form"""
+    """Return to main search form with URL fallback."""
     driver = kwargs.get('driver')
     wait = kwargs.get('wait')
     st = kwargs.get('st_module')
-    
-    re_search_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.media-left > a[href="/wevo/home"]')))
-    re_search_button.click()
-    
-    wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button#toggle-query-execute.btn.btn-primary')))
-    time.sleep(3)
+
+    if _is_home_search_page(driver):
+        return True
+
+    re_search_button = None
+    try:
+        re_search_button = wait.until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, 'div.media-left > a[href="/wevo/home"]'))
+        )
+    except Exception:
+        re_search_button = None
+
+    if re_search_button is not None:
+        try:
+            re_search_button.click()
+        except Exception:
+            driver.execute_script("arguments[0].click();", re_search_button)
+
+    # Primary wait for home-form search button
+    try:
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button#toggle-query-execute.btn.btn-primary')))
+        time.sleep(1.0)
+        return True
+    except Exception:
+        pass
+
+    # Fallback: go home URL and verify homepage signature
+    try:
+        driver.get("https://wisesearch6.wisers.net/wevo/home")
+        WebDriverWait(driver, 12).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "button#toggle-query-execute.btn.btn-primary"))
+        )
+        time.sleep(0.8)
+    except Exception:
+        pass
+
+    if not _is_home_search_page(driver):
+        raise Exception("未能返回首頁搜索頁（home html 特徵未匹配）。")
     return True
 
 
