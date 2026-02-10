@@ -13,6 +13,7 @@ from utils.wisers_utils import (
     switch_language_to_traditional_chinese,
     robust_logout_request,
 )
+from utils.html_structure_config import HTML_STRUCTURE
 
 WISERS_HOME_URL = "https://wisesearch6.wisers.net/wevo/home"
 DEFAULT_INACTIVITY_TIMEOUT_SECONDS = 180
@@ -20,6 +21,185 @@ DEFAULT_INACTIVITY_TIMEOUT_SECONDS = 180
 
 def _resolve_screenshot_dir(screenshot_dir=None):
     return screenshot_dir or os.getenv("WISERS_SCREENSHOT_DIR") or os.path.join(".", "artifacts", "screenshots")
+
+
+def _log_recovery(message, st_module=None, logger=None, level="info"):
+    if st_module:
+        if level == "warning":
+            st_module.warning(message)
+        elif level == "error":
+            st_module.error(message)
+        else:
+            st_module.info(message)
+    if logger:
+        try:
+            if level == "warning" and hasattr(logger, "warn"):
+                logger.warn(message)
+            elif level == "error" and hasattr(logger, "error"):
+                logger.error(message)
+            elif hasattr(logger, "info"):
+                logger.info(message)
+        except Exception:
+            pass
+
+
+def _is_visible(driver, by, selector):
+    try:
+        elements = driver.find_elements(by, selector)
+    except Exception:
+        return False
+    for el in elements:
+        try:
+            if el.is_displayed():
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _detect_wisers_page_state(driver):
+    """
+    Return a normalized Wisers page state for reset routing.
+    """
+    state = {
+        "url": "",
+        "is_wisers": False,
+        "page": "unknown",
+        "signals": [],
+    }
+    if not driver:
+        state["page"] = "driver_missing"
+        return state
+
+    try:
+        url = driver.current_url or ""
+    except Exception:
+        url = ""
+    state["url"] = url
+    state["is_wisers"] = "wisers" in url.lower()
+
+    if "timeout" in url.lower():
+        state["page"] = "timeout"
+        state["signals"].append("url_timeout")
+        return state
+
+    if _is_visible(driver, By.CSS_SELECTOR, 'input[data-qa-ci="groupid"]'):
+        state["page"] = "login"
+        state["signals"].append("login_groupid_input")
+        return state
+
+    if _is_visible(driver, By.CSS_SELECTOR, "#modal-saved-search-ws6"):
+        state["page"] = "saved_search_modal"
+        state["signals"].append("saved_search_modal_visible")
+        return state
+
+    edit_title_selectors = (HTML_STRUCTURE.get("edit_search", {}) or {}).get("modal_title") or []
+    for sel in edit_title_selectors:
+        by = (sel or {}).get("by")
+        value = (sel or {}).get("value")
+        if by != "css" or not value:
+            continue
+        try:
+            titles = driver.find_elements(By.CSS_SELECTOR, value)
+        except Exception:
+            titles = []
+        for title in titles:
+            try:
+                if not title.is_displayed():
+                    continue
+                txt = (title.text or "").strip()
+                if "编辑搜索" in txt or "編輯搜索" in txt:
+                    state["page"] = "edit_search_modal"
+                    state["signals"].append("edit_search_modal_title")
+                    return state
+            except Exception:
+                continue
+
+    if _is_visible(driver, By.CSS_SELECTOR, "div.article-detail"):
+        state["page"] = "article_detail"
+        state["signals"].append("article_detail_container")
+        return state
+
+    if _is_visible(driver, By.CSS_SELECTOR, "button#toggle-query-execute.btn.btn-primary"):
+        state["page"] = "home_search"
+        state["signals"].append("home_search_button")
+        return state
+
+    if _is_visible(driver, By.CSS_SELECTOR, "div.media-left > a[href='/wevo/home']"):
+        state["signals"].append("back_to_search_link")
+        if _is_visible(driver, By.CSS_SELECTOR, "ul.nav-tabs.navbar-nav-pub"):
+            state["page"] = "search_results"
+            state["signals"].append("results_tabbar")
+        else:
+            state["page"] = "results_or_transition"
+        return state
+
+    if _is_visible(driver, By.CSS_SELECTOR, "ul.nav-tabs.navbar-nav-pub"):
+        state["page"] = "search_results"
+        state["signals"].append("results_tabbar")
+        return state
+
+    return state
+
+
+def _close_visible_modals(driver, st_module=None, logger=None):
+    closed = 0
+    selectors = [
+        "button.close[data-dismiss='modal']",
+        "button[data-dismiss='modal']",
+        "#modal-saved-search-ws6 button.close",
+    ]
+    for sel in selectors:
+        try:
+            buttons = driver.find_elements(By.CSS_SELECTOR, sel)
+        except Exception:
+            buttons = []
+        for btn in buttons:
+            try:
+                if not btn.is_displayed():
+                    continue
+                driver.execute_script("arguments[0].click();", btn)
+                time.sleep(0.3)
+                closed += 1
+            except Exception:
+                continue
+    try:
+        active = driver.switch_to.active_element
+        if active:
+            active.send_keys("\uE00C")  # ESC
+    except Exception:
+        pass
+    if closed > 0:
+        _log_recovery(f"🧩 已嘗試關閉 {closed} 個可見彈窗。", st_module=st_module, logger=logger)
+    return closed > 0
+
+
+def _route_light_reset_by_page(driver, wait, st_module=None, logger=None):
+    state = _detect_wisers_page_state(driver)
+    _log_recovery(
+        f"🧭 Light reset 頁面判斷：{state.get('page')} | signals={state.get('signals')} | url={state.get('url')}",
+        st_module=st_module,
+        logger=logger,
+    )
+
+    page = state.get("page")
+    if page == "home_search":
+        return True
+    if page in ("edit_search_modal", "saved_search_modal"):
+        _close_visible_modals(driver, st_module=st_module, logger=logger)
+    if page == "article_detail":
+        try:
+            driver.back()
+            time.sleep(1.2)
+        except Exception:
+            pass
+    if page in ("search_results", "results_or_transition", "article_detail", "edit_search_modal", "saved_search_modal"):
+        try:
+            go_back_to_search_form(driver=driver, wait=wait, st_module=st_module)
+            return True
+        except Exception:
+            pass
+    return _go_home_via_url(driver=driver, wait=wait, st_module=st_module)
 
 
 def _capture_inactivity_screenshot(driver, st_module=None, logger=None, screenshot_dir=None, reason="inactivity_timeout"):
@@ -62,36 +242,39 @@ def _go_home_via_url(driver, wait, st_module=None):
 def reset_wisers_light(driver, wait, st_module=None, logger=None):
     """Light reset: return to search form via navbar."""
     try:
-        if st_module:
-            st_module.info("🔄 嘗試輕量復位：回到主搜索頁...")
-        go_back_to_search_form(driver=driver, wait=wait, st_module=st_module)
-        return True
+        _log_recovery("🔄 嘗試輕量復位：回到主搜索頁...", st_module=st_module, logger=logger)
+        ok = _route_light_reset_by_page(
+            driver=driver,
+            wait=wait,
+            st_module=st_module,
+            logger=logger,
+        )
+        post_state = _detect_wisers_page_state(driver)
+        _log_recovery(
+            f"🧭 Light reset 後頁面：{post_state.get('page')} | signals={post_state.get('signals')}",
+            st_module=st_module,
+            logger=logger,
+        )
+        return bool(ok and post_state.get("page") in ("home_search", "search_results", "results_or_transition"))
     except Exception as e:
-        if st_module:
-            st_module.warning(f"輕量復位失敗：{e}")
-        if logger and hasattr(logger, "warn"):
-            try:
-                logger.warn("Light reset failed", error=str(e))
-            except Exception:
-                pass
+        _log_recovery(f"輕量復位失敗：{e}", st_module=st_module, logger=logger, level="warning")
         try:
             return _go_home_via_url(driver=driver, wait=wait, st_module=st_module)
         except Exception as e2:
-            if st_module:
-                st_module.warning(f"直接回主頁失敗：{e2}")
-            if logger and hasattr(logger, "warn"):
-                try:
-                    logger.warn("Direct home reset failed", error=str(e2))
-                except Exception:
-                    pass
+            _log_recovery(f"直接回主頁失敗：{e2}", st_module=st_module, logger=logger, level="warning")
             return False
 
 
 def reset_wisers_full(driver, wait, st_module, group_name, username, password, api_key, logger=None):
     """Full reset: logout, clear cookies, relogin, and return to search form."""
     try:
-        if st_module:
-            st_module.info("🧼 嘗試完整復位：重新登入並回到搜索頁...")
+        pre_state = _detect_wisers_page_state(driver)
+        _log_recovery(
+            f"🧭 Full reset 前頁面：{pre_state.get('page')} | signals={pre_state.get('signals')} | url={pre_state.get('url')}",
+            st_module=st_module,
+            logger=logger,
+        )
+        _log_recovery("🧼 嘗試完整復位：重新登入並回到搜索頁...", st_module=st_module, logger=logger)
         reset_to_login_page(driver=driver, st_module=st_module)
         perform_login(
             driver=driver,
@@ -108,15 +291,15 @@ def reset_wisers_full(driver, wait, st_module, group_name, username, password, a
             go_back_to_search_form(driver=driver, wait=wait, st_module=st_module)
         except Exception:
             _go_home_via_url(driver=driver, wait=wait, st_module=st_module)
+        post_state = _detect_wisers_page_state(driver)
+        _log_recovery(
+            f"🧭 Full reset 後頁面：{post_state.get('page')} | signals={post_state.get('signals')}",
+            st_module=st_module,
+            logger=logger,
+        )
         return True
     except Exception as e:
-        if st_module:
-            st_module.warning(f"完整復位失敗：{e}")
-        if logger and hasattr(logger, "warn"):
-            try:
-                logger.warn("Full reset failed", error=str(e))
-            except Exception:
-                pass
+        _log_recovery(f"完整復位失敗：{e}", st_module=st_module, logger=logger, level="warning")
         return False
 
 

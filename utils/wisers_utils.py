@@ -39,7 +39,7 @@ def retry_step(func):
         st = kwargs.get('st_module')
         driver = kwargs.get('driver')
         logger = kwargs.get("logger")
-        robust_logout_on_failure = kwargs.get("robust_logout_on_failure", True)
+        robust_logout_on_failure = kwargs.get("robust_logout_on_failure", False)
         screenshot_dir = kwargs.get("screenshot_dir") or os.getenv("WISERS_SCREENSHOT_DIR") or os.path.join(".", "artifacts", "screenshots")
         retry_limit = 3
         
@@ -141,21 +141,9 @@ def retry_step(func):
                         except Exception:
                             pass
                     
-                    # Robust logout on final failure (optional)
-                    if robust_logout_on_failure:
-                        try:
-                            if driver:
-                                robust_logout_request(driver=driver, st_module=st)
-                            elif st:
-                                st.warning("Driver not available for robust logout request.")
-                        except Exception as logout_err:
-                            if st:
-                                st.warning(f"Robust logout request failed: {logout_err}")
-                            if logger and hasattr(logger, "warn"):
-                                try:
-                                    logger.warn("Robust logout request failed", error=str(logout_err))
-                                except Exception:
-                                    pass
+                    # Do not auto-logout here. Caller controls fallback strategy.
+                    if robust_logout_on_failure and st:
+                        st.warning("robust_logout_on_failure 已禁用於 retry_step；將由上層兜底流程決定是否強制登出。")
                     
                     raise Exception(f"Step {func.__name__} failed after {retry_limit} attempts.")
     return wrapper
