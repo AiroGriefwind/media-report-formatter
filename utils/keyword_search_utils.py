@@ -257,7 +257,7 @@ def run_web_scraping_pre_task(
                 watchdog.beat()
 
         if st_module:
-            st_module.write("📰 抓取今日報章社評（保存搜索）...")
+            st_module.write("📰 抓取今日報章社評（编辑搜索）...")
         if watchdog:
             watchdog.beat()
         editorial_data = run_newspaper_editorial_task(driver=driver, wait=wait, st_module=st_module) or []

@@ -209,7 +209,7 @@ def _handle_scraping_process(group_name, username, password, api_key, authors_in
         # Editorial scraping
         final_author_progress = 15 + (len(authors_list) * progress_increment)
         progress_bar.progress(int(final_author_progress), text="Scraping newspaper editorials...")
-        status_text.text("Scraping newspaper editorials (from saved search)...")
+        status_text.text("Scraping newspaper editorials (edit search)...")
         
         editorial_data = run_newspaper_editorial_task(driver=driver, wait=wait, st_module=st)
         if editorial_data is None:

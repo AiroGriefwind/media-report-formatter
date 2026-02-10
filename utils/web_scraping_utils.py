@@ -196,6 +196,10 @@ def _get_edit_search_selectors(key):
     return (HTML_STRUCTURE.get("edit_search", {}) or {}).get(key, [])
 
 
+def _get_edit_search_inputs(key):
+    return (HTML_STRUCTURE.get("edit_search", {}).get("inputs", {}) or {}).get(key, [])
+
+
 def _selector_to_by(selector_def):
     by = (selector_def or {}).get("by")
     value = (selector_def or {}).get("value")
@@ -755,28 +759,56 @@ def run_newspaper_editorial_task(**kwargs):
     wait = kwargs.get('wait')
     st = kwargs.get('st_module')
 
-    if _is_edit_search_modal_open(driver):
-        _close_edit_search_modal(driver, st)
+    if not _is_edit_search_modal_open(driver):
+        edit_btn = None
+        try:
+            edit_btn = wait.until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, "//button[contains(.,'編輯搜索') or contains(.,'编辑搜索')]")
+                )
+            )
+        except Exception:
+            edit_btn = None
+        if edit_btn:
+            try:
+                edit_btn.click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", edit_btn)
 
-    dropdown_toggle = wait.until(
-        EC.element_to_be_clickable((By.CSS_SELECTOR, "li.dropdown-usersavedquery > a.dropdown-toggle")))
-    dropdown_toggle.click()
-    time.sleep(3)
-    edit_saved_search_btn = wait.until(
-        EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-target='#modal-saved-search-ws6']")))
-    edit_saved_search_btn.click()
-    wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#modal-saved-search-ws6")))
-    time.sleep(3)
-    if _is_edit_search_modal_open(driver):
-        _close_edit_search_modal(driver, st)
-    editorial_item = wait.until(
-        EC.element_to_be_clickable((By.XPATH, "//ul[@class='list-group']//h5[text()='社評']/ancestor::li")))
-    editorial_item.click()
-    time.sleep(3)
+        for sel in _get_edit_search_selectors("modal_title"):
+            by, selector = _selector_to_by(sel)
+            if not by or not selector:
+                continue
+            try:
+                wait.until(EC.visibility_of_element_located((by, selector)))
+                break
+            except Exception:
+                continue
+
+    if not _is_edit_search_modal_open(driver) and st:
+        st.warning("未能打开『编辑搜索』弹窗，将继续尝试直接设置搜索条件。")
+
+    _expand_media_author_panel(driver, wait, st)
+    _apply_media_presets(driver, wait, st)
+
+    column_input = _find_first_visible_input(
+        driver, wait, _get_edit_search_inputs("column"), timeout=8
+    )
+    if not column_input:
+        column_input = _find_first_visible_input(
+            driver, wait, _get_home_inputs("column"), timeout=5
+        )
+    if not column_input:
+        raise NoSuchElementException("Could not locate column input field.")
+    column_input.clear()
+    column_input.send_keys("社評 OR editorial")
 
     search_btn = None
-    selectors = [(By.CSS_SELECTOR, "div.modal-footer .btn-default:last-child"),
-                 (By.XPATH, "//div[@class='modal-footer']//button[text()='搜索']")]
+    selectors = [
+        (By.CSS_SELECTOR, "button.edit-search-button-track"),
+        (By.XPATH, "//div[contains(@class,'modal-footer')]//button[text()='搜索']"),
+        (By.XPATH, "//button[normalize-space(text())='搜索']"),
+    ]
     for selector_type, selector in selectors:
         try:
             search_btn = wait.until(EC.element_to_be_clickable((selector_type, selector)))
@@ -793,9 +825,11 @@ def run_newspaper_editorial_task(**kwargs):
                     buttons[i].click(); break;
                 }
             }""")
-    wait.until(EC.invisibility_of_element_located((By.CSS_SELECTOR, "#modal-saved-search-ws6")))
     if _is_edit_search_modal_open(driver):
-        _close_edit_search_modal(driver, st)
+        try:
+            wait.until(lambda d: not _is_edit_search_modal_open(d))
+        except Exception:
+            _close_edit_search_modal(driver, st)
 
     if wait_for_search_results(driver=driver, wait=wait, st_module=st):
         # NEW: Scroll to load all content, then also wait for AJAX to finish
