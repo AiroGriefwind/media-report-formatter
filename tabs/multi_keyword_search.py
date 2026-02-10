@@ -13,7 +13,6 @@ from utils.wisers_utils import (
     is_hkt_monday,
     go_back_to_search_form,
     wait_for_search_results,
-    ensure_results_list_visible,
     wait_for_results_panel_ready,
     search_title_from_home,
     search_title_via_edit_search_modal,
@@ -247,7 +246,6 @@ def _run_keyword_final_with_driver(
                 )
                 has_run_search = True
                 wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st_module)
-                ensure_results_list_visible(driver=driver, wait=wait, st_module=st_module)
                 full_articles_data.extend(
                     scrape_articles_by_news_id(driver, wait, period_items, st_module=st_module, watchdog=watchdog)
                 )
@@ -271,7 +269,6 @@ def _run_keyword_final_with_driver(
             )
             has_run_search = True
             wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st_module)
-            ensure_results_list_visible(driver=driver, wait=wait, st_module=st_module)
             full_articles_data.extend(
                 scrape_articles_by_news_id(driver, wait, preset_items, st_module=st_module, watchdog=watchdog)
             )
@@ -690,7 +687,6 @@ def render_multi_keyword_search_tab():
                                         missing_round2.append(item)
                                         continue
                                     wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st)
-                                    ensure_results_list_visible(driver=driver, wait=wait, st_module=st)
 
                                     retry_scraped = scrape_articles_by_news_id(
                                         driver, wait, [item], st_module=st, watchdog=watchdog

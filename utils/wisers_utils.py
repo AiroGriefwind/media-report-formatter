@@ -626,14 +626,6 @@ def wait_for_search_results(**kwargs):
                 return True
         return False
 
-    def _has_any_results_container() -> bool:
-        return bool(
-            driver.find_elements(
-                By.CSS_SELECTOR,
-                "div.list-group, div.list-article, div.tabpanel-content, div.list-group-item",
-            )
-        )
-    
     try:
         wait.until(EC.presence_of_element_located((
             By.CSS_SELECTOR,
@@ -673,13 +665,6 @@ def wait_for_search_results(**kwargs):
             wait_for_results_panel_ready(driver=driver, wait=wait, st_module=st_module, timeout=10)
         except Exception:
             pass
-
-        # Attempt to switch tabs if results exist but not visible
-        if not _has_result_items() and _has_any_results_container():
-            try:
-                ensure_results_list_visible(driver=driver, wait=wait, st_module=st_module)
-            except Exception:
-                pass
 
         if _has_result_items():
             _log_info("✅ Search results found.")
@@ -854,23 +839,9 @@ def ensure_results_list_visible(driver, wait=None, st_module=None):
 
 
 def wait_for_results_panel_ready(driver, wait=None, st_module=None, timeout=20):
-    """Wait until results panel finishes loading (preloader disappears)."""
+    """Wait until Wisers top progress bar finishes."""
     try:
-        w = wait or WebDriverWait(driver, timeout)
-        w.until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, "div.tabpanel-content, div.list-article, div.list-group")
-            )
-        )
-        try:
-            preloader = driver.find_elements(By.CSS_SELECTOR, "div.tab-content-preloader")
-            if preloader:
-                WebDriverWait(driver, timeout).until(
-                    EC.invisibility_of_element_located((By.CSS_SELECTOR, "div.tab-content-preloader"))
-                )
-        except Exception:
-            pass
-        # Wait for top progress bar to finish (if present)
+        # Keep only the top progress-bar completion check.
         try:
             def _progress_done(d):
                 bars = d.find_elements(By.CSS_SELECTOR, "div.progress.progress__pageTop")
@@ -893,49 +864,6 @@ def wait_for_results_panel_ready(driver, wait=None, st_module=None, timeout=20):
                     return True
                 return False
             WebDriverWait(driver, timeout).until(_progress_done)
-        except Exception:
-            pass
-        # Wait for any common loading/spinner overlays to disappear
-        try:
-            loading_selectors = [
-                "div.tab-content-preloader",
-                "div.progress.progress__pageTop",
-                "div.loading",
-                "div.loading-mask",
-                "div.loading-overlay",
-                "div.page-loading",
-                "div.center-loading",
-                "div.spinner",
-                "div.spinner-border",
-                "div.loader",
-                "div.ant-spin",
-                "div.ant-spin-spinning",
-                "div.block-ui",
-                "div.mask",
-            ]
-
-            def _has_visible_loading(d):
-                for sel in loading_selectors:
-                    try:
-                        els = d.find_elements(By.CSS_SELECTOR, sel)
-                    except Exception:
-                        els = []
-                    for el in els:
-                        try:
-                            if el.is_displayed():
-                                return True
-                        except Exception:
-                            continue
-                return False
-
-            WebDriverWait(driver, timeout).until(lambda d: not _has_visible_loading(d))
-        except Exception:
-            pass
-        # Ensure actual content container appears
-        try:
-            WebDriverWait(driver, timeout).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "div.tab-content"))
-            )
         except Exception:
             pass
         return True
@@ -1350,7 +1278,7 @@ def inject_cjk_font_css(driver, st_module=None):
             )
         except Exception:
             pass
-        if debug_font and st_module:
+        if debug_font:
             try:
                 info = driver.execute_script(
                     """
@@ -1387,14 +1315,12 @@ def inject_cjk_font_css(driver, st_module=None):
                     };
                     """
                 )
-                st_module.write("CJK字体调试信息：")
-                st_module.write(info)
+                print("CJK字体调试信息：", info)
             except Exception as e:
-                st_module.warning(f"CJK字体调试失败: {e}")
+                print(f"CJK字体调试失败: {e}")
         return True
     except Exception as e:
-        if st_module:
-            st_module.warning(f"注入中文字體失敗: {e}")
+        print(f"注入中文字體失敗: {e}")
         return False
 
 
