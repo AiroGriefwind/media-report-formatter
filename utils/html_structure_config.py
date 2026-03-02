@@ -49,6 +49,25 @@ HTML_STRUCTURE = {
                 {"by": "css", "value": "#label-search-media2 input"},
             ],
         },
+        "user_menu": {
+            "toggle_closed": [
+                {"by": "css", "value": "a.dropdown-toggle[data-toggle='dropdown'][aria-expanded='false']"},
+                {"by": "css", "value": "a#dropdownMenu1.dropdown-toggle"},
+                {"by": "css", "value": "a.dropdown-toggle i.wf.wf-user"},
+                {"by": "xpath", "value": "//a[contains(@class,'dropdown-toggle')][.//i[contains(@class,'wf-user')]]"},
+            ],
+            "toggle_open": [
+                {"by": "css", "value": "a.dropdown-toggle[data-toggle='dropdown'][aria-expanded='true']"},
+            ],
+            "menu": [
+                {"by": "css", "value": "ul.dropdown-menu.dropdown-menu-right[role='menu']"},
+                {"by": "css", "value": "ul.dropdown-menu.dropdown-menu-right[aria-labelledby='dropdownMenu1']"},
+                {"by": "css", "value": "ul.dropdown-menu[role='menu']"},
+            ],
+            "logout": [
+                {"by": "xpath", "value": "//ul[contains(@class,'dropdown-menu')]//a[contains(.,'退出登錄') or contains(.,'退出登录')]"},
+            ],
+        },
     },
     "search_results": {},
     "edit_search": {
