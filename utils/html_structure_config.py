@@ -4,6 +4,41 @@ Group selectors by page type for easier maintenance.
 """
 
 HTML_STRUCTURE = {
+    "login": {
+        "inputs": {
+            "group": [
+                {"by": "css", "value": "input[data-qa-ci='groupid']"},
+                {"by": "css", "value": "input[name='groupid']"},
+            ],
+            "user": [
+                {"by": "css", "value": "input[data-qa-ci='userid']"},
+                {"by": "css", "value": "input[name='userid']"},
+            ],
+            "password": [
+                {"by": "css", "value": "input[data-qa-ci='password']"},
+                {"by": "css", "value": "input[type='password']"},
+            ],
+            "captcha": [
+                {"by": "css", "value": "input.CaptchaField__Input-hffgxm-4"},
+                {"by": "css", "value": "input[class*='CaptchaField__Input']"},
+            ],
+            "captcha_image": [
+                {"by": "css", "value": "img.CaptchaField__CaptchaImage-hffgxm-5"},
+                {"by": "css", "value": "img[class*='CaptchaField__CaptchaImage']"},
+            ],
+        },
+        "submit": [
+            {"by": "css", "value": "input[data-qa-ci='button-login']"},
+            {"by": "css", "value": "button[type='submit']"},
+            {"by": "xpath", "value": "//input[@type='submit']"},
+        ],
+        "error": [
+            {"by": "css", "value": "div.NewContent__StyledNewErrorCode-q19ga1-5"},
+            {"by": "css", "value": "div[class*='ErrorCode']"},
+            {"by": "css", "value": "div[class*='error']"},
+            {"by": "css", "value": "p[class*='error']"},
+        ],
+    },
     "home": {
         "media_filter_container_selector": (
             "#accordion-queryfilter > div.panel.panel-default.panel-queryfilter-scope-publisher "

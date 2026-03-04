@@ -4,6 +4,7 @@ streamlit
 # Web Scraping
 selenium
 webdriver-manager
+playwright
 2captcha-python
 requests
 

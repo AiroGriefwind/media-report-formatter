@@ -1,0 +1,28 @@
+stage=fatal
+reason=RuntimeError("state 'verify_home' failed after 2 attempts: Login failed: User over limit")
+url=https://login.wisers.net/?clang=en-zh&fromUrl=https%3A%2F%2Fwww.wisersone.com&product=wiseone
+group=True user=True
+--- body_snippet ---
+Covers a gamut of
+
+communications scenarios,
+
+mining underlying insights from social media monitoring data
+
+EN
+English (繁)
+Welcome, user login
+Account Login
+User over limit
+Group ID
+Username
+Password
+Remember Me
+Captcha
+Change
+Still no account? To apply for trial
+About Wisers
+Terms of Use
+Privacy Policy
+Customer Service
+Wisers Information Limited © 2026 All Rights Reserved
