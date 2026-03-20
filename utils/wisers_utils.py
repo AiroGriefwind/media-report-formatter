@@ -488,15 +488,36 @@ def close_tutorial_modal_ROBUST(**kwargs):
     status_text.text("Attempting to close tutorial modal...")
     
     try:
-        close_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '#app-userstarterguide-0 button.close')))
-        ActionChains(driver).move_to_element(close_btn).click(close_btn).perform()
-        time.sleep(2)
+        close_btn = wait.until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, '#app-userstarterguide-0 button.close'))
+        )
+        try:
+            driver.execute_script("arguments[0].click();", close_btn)
+        except Exception:
+            ActionChains(driver).move_to_element(close_btn).click(close_btn).perform()
+        time.sleep(1.2)
         wait.until(EC.invisibility_of_element_located((By.ID, 'app-userstarterguide-0')))
         status_text.text("Modal closed successfully!")
+        return
     except TimeoutException:
         status_text.text("Modal did not appear or was already closed.")
     except Exception as e:
         st.warning(f"Modal could not be closed. Continuing... Error: {e}")
+
+    # Fallback: close any visible modal close button
+    try:
+        buttons = driver.find_elements(By.CSS_SELECTOR, "button.close[data-dismiss='modal']")
+        for btn in buttons:
+            try:
+                if not btn.is_displayed():
+                    continue
+                driver.execute_script("arguments[0].click();", btn)
+                time.sleep(0.6)
+                break
+            except Exception:
+                continue
+    except Exception:
+        pass
 
 @retry_step
 def switch_language_to_traditional_chinese(**kwargs):
@@ -1801,6 +1822,14 @@ def robust_logout_request(driver, st_module=None):
             st_module.warning("robust_logout_request requires a selenium WebDriver instance.")
         return
     
+    def _parse_group_user_from_cookie(val: str) -> tuple[str | None, str | None]:
+        if not val:
+            return None, None
+        if "@" in val:
+            group, user = val.split("@", 1)
+            return group or None, user or None
+        return None, None
+
     try:
         # Extract session cookies from Selenium driver
         selenium_cookies = driver.get_cookies()
@@ -1818,18 +1847,29 @@ def robust_logout_request(driver, st_module=None):
                 continue
 
         
+        # Infer group/user from cookies when possible
+        group_id = None
+        user_id = None
+        if "cUSERNAME" in session_cookies:
+            group_id, user_id = _parse_group_user_from_cookie(session_cookies.get("cUSERNAME", ""))
+        if (not group_id or not user_id) and "sessionCookie" in session_cookies:
+            group_id, user_id = _parse_group_user_from_cookie(session_cookies.get("sessionCookie", ""))
+
         # Get current timestamp for the logout URL
         current_timestamp = int(time.time() * 1000)
+        criteria_group = group_id or "SPRG1"
+        criteria_user = user_id or "AsiaNet1"
+        csrf_token = session_cookies.get("_csrf")
         robust_logout_url = (
-            "https://wisesearch6.wisers.net/wevo/api/AccountService;criteria=%7B%22groupId%22%3A%22SPRG1%22%2C"
-            "%22userId%22%3A%22AsiaNet1%22%2C%22deviceType%22%3A%22web%22%2C%22deviceId%22%3A%22%22%7D;"
+            f"https://wisesearch6.wisers.net/wevo/api/AccountService;criteria=%7B%22groupId%22%3A%22{criteria_group}%22%2C"
+            f"%22userId%22%3A%22{criteria_user}%22%2C%22deviceType%22%3A%22web%22%2C%22deviceId%22%3A%22%22%7D;"
             f"path=logout;timestamp={current_timestamp};updateSession=true"
-            "?returnMeta=true"
+            f"{'?_csrf=' + csrf_token if csrf_token else ''}&returnMeta=true"
         )
         
         headers = {
             "accept": "*/*",
-            "accept-language": "en-US,en;q=0.9",
+            "accept-language": "zh-CN,zh;q=0.9",
             "sec-ch-ua": '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": '"Windows"',

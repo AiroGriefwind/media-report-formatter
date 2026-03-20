@@ -103,6 +103,22 @@ HTML_STRUCTURE = {
                 {"by": "xpath", "value": "//ul[contains(@class,'dropdown-menu')]//a[contains(.,'退出登錄') or contains(.,'退出登录')]"},
             ],
         },
+        "tutorial_modal": {
+            "root": [
+                {"by": "css", "value": "div#app-userstarterguide-0"},
+                {"by": "css", "value": "div.carousel-userstarterguide"},
+                {"by": "css", "value": "div#carousel-userstarterguide"},
+            ],
+            "close_button": [
+                {"by": "css", "value": "#app-userstarterguide-0 button.close"},
+                {"by": "css", "value": "button.close[data-dismiss='modal']"},
+            ],
+            "text_markers": [
+                "接下来向您介绍平台功能的使用",
+                "教程结束",
+                "进入WiseSearch",
+            ],
+        },
     },
     "search_results": {},
     "edit_search": {
