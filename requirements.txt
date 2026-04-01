@@ -11,7 +11,8 @@ requests
 python-docx
 opencc-python-reimplemented
 
-# Firebase logging
+# Firebase logging & HKT timestamps (explicit; not guaranteed as transitive)
+pytz
 firebase-admin>=6.8,<7.2
 google-cloud-storage>=2.14
 google-cloud-firestore>=2.16
